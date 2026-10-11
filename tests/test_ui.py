@@ -31,6 +31,13 @@ def test_main_window_instantiation_and_navigation(qapp, session):
         window.nav_buttons[i].click()
         assert window.stack.currentIndex() == i
 
+    # Verify DESPL heading on dashboard page
+    dashboard_page = window.page_dashboard
+    assert hasattr(dashboard_page, "despl_heading")
+    assert dashboard_page.despl_heading.text() == "DESPL"
+    assert "Calibri" in dashboard_page.despl_heading.styleSheet()
+    assert "#d4af37" in dashboard_page.despl_heading.styleSheet()
+
     window.close()
 
 

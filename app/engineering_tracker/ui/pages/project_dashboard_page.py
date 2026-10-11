@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QMessageBox,
 )
+from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
 from sqlalchemy.orm import Session
 from app.engineering_tracker.services.project_service import ProjectService
@@ -31,8 +32,27 @@ class ProjectDashboardPage(QWidget):
         self.dash_svc = DashboardService(session)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(24, 20, 24, 24)
+        layout.setSpacing(16)
+
+        # Centered DESPL Heading (Calibri, Golden)
+        self.despl_heading = QLabel("DESPL")
+        self.despl_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        despl_font = QFont("Calibri", 30, QFont.Weight.Bold)
+        self.despl_heading.setFont(despl_font)
+        self.despl_heading.setStyleSheet(
+            """
+            QLabel {
+                font-family: 'Calibri', sans-serif;
+                font-size: 38px;
+                font-weight: 700;
+                color: #d4af37; /* Golden */
+                letter-spacing: 6px;
+                padding: 0px 0px 4px 0px;
+            }
+            """
+        )
+        layout.addWidget(self.despl_heading)
 
         # Header bar
         header_layout = QHBoxLayout()
