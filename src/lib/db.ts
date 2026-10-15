@@ -96,21 +96,30 @@ function initSchema(db: DatabaseSync) {
       rfq_number TEXT NOT NULL UNIQUE,
       harness_id INTEGER NOT NULL REFERENCES harnesses(id) ON DELETE RESTRICT,
       revision_id INTEGER NOT NULL REFERENCES revisions(id) ON DELETE RESTRICT,
+      fg_code TEXT,
+      fg_rev TEXT,
+      description TEXT,
       marketing_input_date TEXT,
       design_input_date TEXT,
       work_start_date TEXT,
       target_date TEXT,
       completion_date TEXT,
+      costing_bom_prepare_date TEXT,
       costing_bom_submitted_date TEXT,
+      costing_bom_status TEXT NOT NULL DEFAULT 'Pending',
       query_yes_no INTEGER NOT NULL DEFAULT 0,
       query_submitted_date TEXT,
       reply_received_date TEXT,
+      query_type TEXT,
       query_status TEXT NOT NULL DEFAULT 'Open' CHECK(query_status IN ('Open', 'Resolved', 'Cancelled')),
       query_remark TEXT,
+      unique_list_share_date TEXT,
+      unique_status TEXT NOT NULL DEFAULT 'Open',
       proposal_yes_no INTEGER NOT NULL DEFAULT 0,
       proposal_submitted_date TEXT,
       proposal_status TEXT NOT NULL DEFAULT 'Pending' CHECK(proposal_status IN ('Pending', 'Submitted', 'Approved', 'Rejected')),
       proposal_remark TEXT,
+      remark TEXT,
       overall_rfq_status TEXT NOT NULL DEFAULT 'Open' CHECK(overall_rfq_status IN ('Open', 'In Progress', 'Submitted', 'Completed', 'Cancelled')),
       created_by TEXT NOT NULL DEFAULT 'Engineer',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -215,6 +224,24 @@ function initSchema(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_bom_ecn ON bom_records(ecn_id);
     CREATE INDEX IF NOT EXISTS idx_label_bom ON label_uploads(bom_id);
   `);
+
+  // Safe dynamic migration for existing rfqs table
+  const rfqCols = db.prepare("PRAGMA table_info(rfqs)").all() as any[];
+  const colSet = new Set(rfqCols.map((c: any) => c.name));
+  const addColIfNotExists = (col: string, type: string) => {
+    if (!colSet.has(col)) {
+      db.exec(`ALTER TABLE rfqs ADD COLUMN ${col} ${type};`);
+    }
+  };
+  addColIfNotExists("fg_code", "TEXT");
+  addColIfNotExists("fg_rev", "TEXT");
+  addColIfNotExists("description", "TEXT");
+  addColIfNotExists("query_type", "TEXT");
+  addColIfNotExists("unique_list_share_date", "TEXT");
+  addColIfNotExists("unique_status", "TEXT NOT NULL DEFAULT 'Open'");
+  addColIfNotExists("costing_bom_prepare_date", "TEXT");
+  addColIfNotExists("costing_bom_status", "TEXT NOT NULL DEFAULT 'Pending'");
+  addColIfNotExists("remark", "TEXT");
 }
 
 function seedInitialData(db: DatabaseSync) {

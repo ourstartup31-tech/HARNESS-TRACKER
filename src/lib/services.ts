@@ -251,7 +251,15 @@ export const RFQService = {
   list() {
     const db = getDb();
     return db.prepare(`
-      SELECT r.*, h.harness_number, rev.revision_code, rev.sop_number, p.model_name, c.name as customer_name
+      SELECT 
+        r.*, 
+        h.harness_number, 
+        rev.revision_code, 
+        rev.sop_number, 
+        rev.circuit_count, 
+        rev.volume, 
+        p.model_name, 
+        c.name as customer_name
       FROM rfqs r
       JOIN harnesses h ON r.harness_id = h.id
       JOIN revisions rev ON r.revision_id = rev.id
@@ -264,21 +272,35 @@ export const RFQService = {
   create(data: {
     harness_id: number;
     revision_id: number;
+    fg_code?: string;
+    fg_rev?: string;
+    description?: string;
     marketing_input_date?: string;
     design_input_date?: string;
     work_start_date?: string;
+    start_date?: string;
     target_date?: string;
     completion_date?: string;
+    actual_date?: string;
+    costing_bom_prepare_date?: string;
     costing_bom_submitted_date?: string;
+    costing_bom_shared_date?: string;
+    costing_bom_status?: string;
     query_yes_no?: boolean;
     query_submitted_date?: string;
+    query_sent_date?: string;
     reply_received_date?: string;
+    query_resolve_date?: string;
+    query_type?: string;
     query_status?: "Open" | "Resolved" | "Cancelled";
     query_remark?: string;
+    unique_list_share_date?: string;
+    unique_status?: string;
     proposal_yes_no?: boolean;
     proposal_submitted_date?: string;
     proposal_status?: "Pending" | "Submitted" | "Approved" | "Rejected";
     proposal_remark?: string;
+    remark?: string;
     overall_rfq_status?: "Open" | "In Progress" | "Submitted" | "Completed" | "Cancelled";
     created_by?: string;
   }) {
@@ -287,7 +309,8 @@ export const RFQService = {
     // POKA-YOKE: Blocking query check!
     const queryYes = data.query_yes_no ? 1 : 0;
     const queryStatus = data.query_status || "Open";
-    if (queryYes === 1 && queryStatus === "Open" && data.costing_bom_submitted_date) {
+    const bomDate = data.costing_bom_submitted_date || data.costing_bom_shared_date;
+    if (queryYes === 1 && queryStatus === "Open" && bomDate) {
       throw new Error(
         "Cannot record Costing BOM Submitted Date while an unresolved query exists. " +
         "The unresolved query must be resolved before submitting Costing BOM."
@@ -299,24 +322,30 @@ export const RFQService = {
 
     const info = db.prepare(`
       INSERT INTO rfqs (
-        rfq_number, harness_id, revision_id, marketing_input_date, design_input_date,
-        work_start_date, target_date, completion_date, costing_bom_submitted_date,
-        query_yes_no, query_submitted_date, reply_received_date, query_status, query_remark,
+        rfq_number, harness_id, revision_id, fg_code, fg_rev, description,
+        marketing_input_date, design_input_date, work_start_date, target_date, completion_date,
+        costing_bom_prepare_date, costing_bom_submitted_date, costing_bom_status,
+        query_yes_no, query_submitted_date, reply_received_date, query_type, query_status, query_remark,
+        unique_list_share_date, unique_status,
         proposal_yes_no, proposal_submitted_date, proposal_status, proposal_remark,
-        overall_rfq_status, created_by, modified_by
+        remark, overall_rfq_status, created_by, modified_by
       ) VALUES (
+        ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
-        ?, ?, ?, ?,
-        ?, ?, ?
+        ?, ?, ?, ?
       )
     `).run(
-      rfqNumber, data.harness_id, data.revision_id, data.marketing_input_date || null, data.design_input_date || null,
-      data.work_start_date || null, data.target_date || null, data.completion_date || null, data.costing_bom_submitted_date || null,
-      queryYes, data.query_submitted_date || null, data.reply_received_date || null, queryStatus, data.query_remark || null,
+      rfqNumber, data.harness_id, data.revision_id, data.fg_code || null, data.fg_rev || null, data.description || null,
+      data.marketing_input_date || null, data.design_input_date || null, (data.work_start_date || data.start_date) || null, data.target_date || null, (data.completion_date || data.actual_date) || null,
+      data.costing_bom_prepare_date || null, bomDate || null, data.costing_bom_status || "Pending",
+      queryYes, (data.query_submitted_date || data.query_sent_date) || null, (data.reply_received_date || data.query_resolve_date) || null, data.query_type || null, queryStatus, (data.query_remark || data.remark) || null,
+      data.unique_list_share_date || null, data.unique_status || "Open",
       data.proposal_yes_no ? 1 : 0, data.proposal_submitted_date || null, data.proposal_status || "Pending", data.proposal_remark || null,
-      data.overall_rfq_status || "Open", user, user
+      data.remark || null, data.overall_rfq_status || "Open", user, user
     );
 
     return db.prepare("SELECT * FROM rfqs WHERE id = ?").get(info.lastInsertRowid);
@@ -329,7 +358,9 @@ export const RFQService = {
 
     const queryYes = data.query_yes_no !== undefined ? (data.query_yes_no ? 1 : 0) : rfq.query_yes_no;
     const queryStatus = data.query_status || rfq.query_status;
-    const bomDate = data.costing_bom_submitted_date !== undefined ? data.costing_bom_submitted_date : rfq.costing_bom_submitted_date;
+    const bomDate = (data.costing_bom_submitted_date !== undefined ? data.costing_bom_submitted_date : data.costing_bom_shared_date) !== undefined
+      ? (data.costing_bom_submitted_date || data.costing_bom_shared_date)
+      : rfq.costing_bom_submitted_date;
 
     if (queryYes === 1 && queryStatus === "Open" && bomDate) {
       throw new Error(
@@ -340,41 +371,59 @@ export const RFQService = {
 
     db.prepare(`
       UPDATE rfqs SET
+        fg_code = COALESCE(?, fg_code),
+        fg_rev = COALESCE(?, fg_rev),
+        description = COALESCE(?, description),
         marketing_input_date = COALESCE(?, marketing_input_date),
         design_input_date = COALESCE(?, design_input_date),
         work_start_date = COALESCE(?, work_start_date),
         target_date = COALESCE(?, target_date),
         completion_date = COALESCE(?, completion_date),
+        costing_bom_prepare_date = COALESCE(?, costing_bom_prepare_date),
         costing_bom_submitted_date = COALESCE(?, costing_bom_submitted_date),
+        costing_bom_status = COALESCE(?, costing_bom_status),
         query_yes_no = ?,
         query_submitted_date = COALESCE(?, query_submitted_date),
         reply_received_date = COALESCE(?, reply_received_date),
+        query_type = COALESCE(?, query_type),
         query_status = COALESCE(?, query_status),
         query_remark = COALESCE(?, query_remark),
+        unique_list_share_date = COALESCE(?, unique_list_share_date),
+        unique_status = COALESCE(?, unique_status),
         proposal_yes_no = ?,
         proposal_submitted_date = COALESCE(?, proposal_submitted_date),
         proposal_status = COALESCE(?, proposal_status),
         proposal_remark = COALESCE(?, proposal_remark),
+        remark = COALESCE(?, remark),
         overall_rfq_status = COALESCE(?, overall_rfq_status),
         modified_by = ?,
         modified_at = datetime('now')
       WHERE id = ?
     `).run(
+      data.fg_code ?? null,
+      data.fg_rev ?? null,
+      data.description ?? null,
       data.marketing_input_date ?? null,
       data.design_input_date ?? null,
-      data.work_start_date ?? null,
+      (data.work_start_date || data.start_date) ?? null,
       data.target_date ?? null,
-      data.completion_date ?? null,
-      data.costing_bom_submitted_date ?? null,
+      (data.completion_date || data.actual_date) ?? null,
+      data.costing_bom_prepare_date ?? null,
+      (data.costing_bom_submitted_date || data.costing_bom_shared_date) ?? null,
+      data.costing_bom_status ?? null,
       queryYes,
-      data.query_submitted_date ?? null,
-      data.reply_received_date ?? null,
+      (data.query_submitted_date || data.query_sent_date) ?? null,
+      (data.reply_received_date || data.query_resolve_date) ?? null,
+      data.query_type ?? null,
       queryStatus ?? null,
-      data.query_remark ?? null,
+      (data.query_remark || data.remark) ?? null,
+      data.unique_list_share_date ?? null,
+      data.unique_status ?? null,
       data.proposal_yes_no !== undefined ? (data.proposal_yes_no ? 1 : 0) : rfq.proposal_yes_no,
       data.proposal_submitted_date ?? null,
       data.proposal_status ?? null,
       data.proposal_remark ?? null,
+      data.remark ?? null,
       data.overall_rfq_status ?? null,
       modifiedBy,
       id

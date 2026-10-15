@@ -510,26 +510,67 @@ export default function App() {
                 <table>
                   <thead>
                     <tr>
-                      <th>RFQ Number</th>
-                      <th>Customer & Model</th>
-                      <th>Harness</th>
-                      <th>Rev</th>
+                      <th>Sr .No (unique RFQ No.)</th>
+                      <th>harness part no.</th>
+                      <th>customer revision</th>
+                      <th>fg code</th>
+                      <th>fg rev.</th>
+                      <th>description</th>
+                      <th>marketing in put received date</th>
+                      <th>design in put received date</th>
+                      <th>Query sent date</th>
+                      <th>Query resolve date</th>
+                      <th>Query type</th>
+                      <th>Query status</th>
+                      <th>Unique list share date</th>
+                      <th>Unique RFQ No.</th>
+                      <th>Unique status</th>
+                      <th>costing BOM prepare date</th>
+                      <th>Costing BOM shared date</th>
+                      <th>Costing BOM Status</th>
+                      <th>Remark</th>
+                      <th>Over all status</th>
+                      <th>No. of ckt</th>
+                      <th>Volume</th>
+                      <th>Start date</th>
                       <th>Target Date</th>
-                      <th>Costing BOM Submitted</th>
-                      <th>Query Status</th>
-                      <th>Proposal Status</th>
-                      <th>Overall Status</th>
+                      <th>Actual Date</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rfqs.map(r => (
+                    {rfqs.map((r, idx) => (
                       <tr key={r.id}>
-                        <td style={{ fontWeight: 600, color: "#38bdf8" }}>{r.rfq_number}</td>
-                        <td>{r.customer_name} ({r.model_name})</td>
-                        <td>{r.harness_number}</td>
-                        <td>{r.revision_code}</td>
-                        <td>{r.target_date || "-"}</td>
+                        <td style={{ fontWeight: 600, color: "#38bdf8" }}>{r.rfq_number || idx + 1}</td>
+                        <td style={{ fontWeight: 600 }}>{r.harness_number || "-"}</td>
+                        <td>{r.revision_code || "-"}</td>
+                        <td>{r.fg_code || "-"}</td>
+                        <td>{r.fg_rev || "-"}</td>
+                        <td style={{ maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.description || (r.customer_name ? `${r.customer_name} - ${r.model_name}` : "")}>
+                          {r.description || (r.customer_name ? `${r.customer_name} - ${r.model_name}` : "-")}
+                        </td>
+                        <td>{r.marketing_input_date || "-"}</td>
+                        <td>{r.design_input_date || "-"}</td>
+                        <td>{r.query_submitted_date || r.query_sent_date || "-"}</td>
+                        <td>{r.reply_received_date || r.query_resolve_date || "-"}</td>
+                        <td>{r.query_type || "-"}</td>
+                        <td>
+                          {r.query_yes_no || r.query_status ? (
+                            <span className={`badge ${r.query_status === "Resolved" ? "badge-resolved" : "badge-delayed"}`}>
+                              {r.query_status || "Open"}
+                            </span>
+                          ) : (
+                            <span style={{ color: "#64748b" }}>No Query</span>
+                          )}
+                        </td>
+                        <td>{r.unique_list_share_date || "-"}</td>
+                        <td style={{ fontWeight: 600, color: "#38bdf8" }}>{r.rfq_number || "-"}</td>
+                        <td>
+                          <span className={`badge ${r.unique_status === "Completed" || r.unique_status === "Approved" ? "badge-completed" : "badge-open"}`}>
+                            {r.unique_status || r.overall_rfq_status || "Open"}
+                          </span>
+                        </td>
+                        <td>{r.costing_bom_prepare_date || "-"}</td>
                         <td>
                           {r.costing_bom_submitted_date ? (
                             <span style={{ color: "#34d399" }}>{r.costing_bom_submitted_date}</span>
@@ -538,24 +579,23 @@ export default function App() {
                           )}
                         </td>
                         <td>
-                          {r.query_yes_no ? (
-                            <span className={`badge ${r.query_status === "Resolved" ? "badge-resolved" : "badge-delayed"}`}>
-                              {r.query_status}
-                            </span>
-                          ) : (
-                            <span style={{ color: "#64748b" }}>No Query</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className={`badge ${r.proposal_status === "Approved" ? "badge-completed" : "badge-in-progress"}`}>
-                            {r.proposal_status}
+                          <span className={`badge ${r.costing_bom_status === "Approved" || r.costing_bom_status === "Submitted" || r.costing_bom_submitted_date ? "badge-completed" : "badge-in-progress"}`}>
+                            {r.costing_bom_status || (r.costing_bom_submitted_date ? "Submitted" : "Pending")}
                           </span>
+                        </td>
+                        <td style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.remark || r.query_remark || ""}>
+                          {r.remark || r.query_remark || "-"}
                         </td>
                         <td>
                           <span className={`badge ${r.overall_rfq_status === "Completed" ? "badge-completed" : "badge-open"}`}>
-                            {r.overall_rfq_status}
+                            {r.overall_rfq_status || "Open"}
                           </span>
                         </td>
+                        <td>{r.circuit_count !== undefined && r.circuit_count !== null ? r.circuit_count : (r.no_of_ckt || "-")}</td>
+                        <td>{r.volume !== undefined && r.volume !== null ? Number(r.volume).toLocaleString() : "-"}</td>
+                        <td>{r.work_start_date || r.start_date || "-"}</td>
+                        <td>{r.target_date || "-"}</td>
+                        <td>{r.completion_date || r.actual_date || "-"}</td>
                         <td>
                           <button
                             className="btn btn-outline"
@@ -1310,11 +1350,58 @@ export default function App() {
                     </div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Marketing Input Date</label>
+                        <label className="form-label">FG Code</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. FG-NXN-MAIN-901"
+                          value={modalData.fg_code || ""}
+                          onChange={e => setModalData({ ...modalData, fg_code: e.target.value.toUpperCase() })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">FG Rev</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. BA"
+                          value={modalData.fg_rev || ""}
+                          onChange={e => setModalData({ ...modalData, fg_rev: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Description</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Main Body Wiring Harness"
+                        value={modalData.description || ""}
+                        onChange={e => setModalData({ ...modalData, description: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Marketing Input Received Date</label>
                         <input
                           type="date"
                           value={modalData.marketing_input_date || ""}
                           onChange={e => setModalData({ ...modalData, marketing_input_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Design Input Received Date</label>
+                        <input
+                          type="date"
+                          value={modalData.design_input_date || ""}
+                          onChange={e => setModalData({ ...modalData, design_input_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Start Date</label>
+                        <input
+                          type="date"
+                          value={modalData.work_start_date || ""}
+                          onChange={e => setModalData({ ...modalData, work_start_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
@@ -1325,10 +1412,88 @@ export default function App() {
                           onChange={e => setModalData({ ...modalData, target_date: e.target.value })}
                         />
                       </div>
+                      <div className="form-group">
+                        <label className="form-label">Actual Date</label>
+                        <input
+                          type="date"
+                          value={modalData.completion_date || ""}
+                          onChange={e => setModalData({ ...modalData, completion_date: e.target.value })}
+                        />
+                      </div>
                     </div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Costing BOM Submitted Date</label>
+                        <label className="form-label">Query Sent Date</label>
+                        <input
+                          type="date"
+                          value={modalData.query_submitted_date || ""}
+                          onChange={e => setModalData({ ...modalData, query_submitted_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Query Resolve Date</label>
+                        <input
+                          type="date"
+                          value={modalData.reply_received_date || ""}
+                          onChange={e => setModalData({ ...modalData, reply_received_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Query Type</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Technical / Commercial"
+                          value={modalData.query_type || ""}
+                          onChange={e => setModalData({ ...modalData, query_type: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Query Status</label>
+                        <select
+                          value={modalData.query_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, query_status: e.target.value, query_yes_no: e.target.value !== "Cancelled" })}
+                        >
+                          <option value="Open">Open (Blocks Costing BOM!)</option>
+                          <option value="Resolved">Resolved</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Unique List Share Date</label>
+                        <input
+                          type="date"
+                          value={modalData.unique_list_share_date || ""}
+                          onChange={e => setModalData({ ...modalData, unique_list_share_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Unique Status</label>
+                        <select
+                          value={modalData.unique_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, unique_status: e.target.value })}
+                        >
+                          <option value="Open">Open</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Costing BOM Prepare Date</label>
+                        <input
+                          type="date"
+                          value={modalData.costing_bom_prepare_date || ""}
+                          onChange={e => setModalData({ ...modalData, costing_bom_prepare_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Costing BOM Shared Date</label>
                         <input
                           type="date"
                           value={modalData.costing_bom_submitted_date || ""}
@@ -1336,39 +1501,40 @@ export default function App() {
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Query Active?</label>
+                        <label className="form-label">Costing BOM Status</label>
                         <select
-                          value={modalData.query_yes_no ? "1" : "0"}
-                          onChange={e => setModalData({ ...modalData, query_yes_no: e.target.value === "1" })}
+                          value={modalData.costing_bom_status || "Pending"}
+                          onChange={e => setModalData({ ...modalData, costing_bom_status: e.target.value })}
                         >
-                          <option value="0">No Query</option>
-                          <option value="1">Yes (Query Exists)</option>
+                          <option value="Pending">Pending</option>
+                          <option value="Draft">Draft</option>
+                          <option value="Submitted">Submitted</option>
+                          <option value="Approved">Approved</option>
                         </select>
                       </div>
                     </div>
-                    {modalData.query_yes_no && (
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label className="form-label">Query Status</label>
-                          <select
-                            value={modalData.query_status || "Open"}
-                            onChange={e => setModalData({ ...modalData, query_status: e.target.value })}
-                          >
-                            <option value="Open">Open (Blocks BOM submission!)</option>
-                            <option value="Resolved">Resolved</option>
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">Query Remark</label>
-                          <input
-                            type="text"
-                            placeholder="Reason or customer reply"
-                            value={modalData.query_remark || ""}
-                            onChange={e => setModalData({ ...modalData, query_remark: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                    )}
+                    <div className="form-group">
+                      <label className="form-label">Remark</label>
+                      <input
+                        type="text"
+                        placeholder="Remark or notes"
+                        value={modalData.remark || ""}
+                        onChange={e => setModalData({ ...modalData, remark: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Over all status</label>
+                      <select
+                        value={modalData.overall_rfq_status || "Open"}
+                        onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
+                      >
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Submitted">Submitted</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Cancelled">Cancelled</option>
+                      </select>
+                    </div>
                   </>
                 )}
 
@@ -1377,6 +1543,61 @@ export default function App() {
                   <>
                     <div className="form-row">
                       <div className="form-group">
+                        <label className="form-label">FG Code</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. FG-NXN-MAIN-901"
+                          value={modalData.fg_code || ""}
+                          onChange={e => setModalData({ ...modalData, fg_code: e.target.value.toUpperCase() })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">FG Rev</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. BA"
+                          value={modalData.fg_rev || ""}
+                          onChange={e => setModalData({ ...modalData, fg_rev: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Description</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Main Body Wiring Harness"
+                        value={modalData.description || ""}
+                        onChange={e => setModalData({ ...modalData, description: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Marketing Input Received Date</label>
+                        <input
+                          type="date"
+                          value={modalData.marketing_input_date || ""}
+                          onChange={e => setModalData({ ...modalData, marketing_input_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Design Input Received Date</label>
+                        <input
+                          type="date"
+                          value={modalData.design_input_date || ""}
+                          onChange={e => setModalData({ ...modalData, design_input_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Start Date</label>
+                        <input
+                          type="date"
+                          value={modalData.work_start_date || ""}
+                          onChange={e => setModalData({ ...modalData, work_start_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
                         <label className="form-label">Target Date</label>
                         <input
                           type="date"
@@ -1385,70 +1606,127 @@ export default function App() {
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Costing BOM Submitted Date</label>
+                        <label className="form-label">Actual Date</label>
+                        <input
+                          type="date"
+                          value={modalData.completion_date || ""}
+                          onChange={e => setModalData({ ...modalData, completion_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Query Sent Date</label>
+                        <input
+                          type="date"
+                          value={modalData.query_submitted_date || ""}
+                          onChange={e => setModalData({ ...modalData, query_submitted_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Query Resolve Date</label>
+                        <input
+                          type="date"
+                          value={modalData.reply_received_date || ""}
+                          onChange={e => setModalData({ ...modalData, reply_received_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Query Type</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Technical / Commercial"
+                          value={modalData.query_type || ""}
+                          onChange={e => setModalData({ ...modalData, query_type: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Query Status</label>
+                        <select
+                          value={modalData.query_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, query_status: e.target.value, query_yes_no: e.target.value !== "Cancelled" })}
+                        >
+                          <option value="Open">Open (Blocks Costing BOM!)</option>
+                          <option value="Resolved">Resolved</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Unique List Share Date</label>
+                        <input
+                          type="date"
+                          value={modalData.unique_list_share_date || ""}
+                          onChange={e => setModalData({ ...modalData, unique_list_share_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Unique Status</label>
+                        <select
+                          value={modalData.unique_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, unique_status: e.target.value })}
+                        >
+                          <option value="Open">Open</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Costing BOM Prepare Date</label>
+                        <input
+                          type="date"
+                          value={modalData.costing_bom_prepare_date || ""}
+                          onChange={e => setModalData({ ...modalData, costing_bom_prepare_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Costing BOM Shared Date</label>
                         <input
                           type="date"
                           value={modalData.costing_bom_submitted_date || ""}
                           onChange={e => setModalData({ ...modalData, costing_bom_submitted_date: e.target.value })}
                         />
                       </div>
-                    </div>
-                    <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Query Yes/No</label>
+                        <label className="form-label">Costing BOM Status</label>
                         <select
-                          value={modalData.query_yes_no ? "1" : "0"}
-                          onChange={e => setModalData({ ...modalData, query_yes_no: e.target.value === "1" })}
+                          value={modalData.costing_bom_status || "Pending"}
+                          onChange={e => setModalData({ ...modalData, costing_bom_status: e.target.value })}
                         >
-                          <option value="0">No Query</option>
-                          <option value="1">Yes</option>
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Query Status</label>
-                        <select
-                          value={modalData.query_status || "Open"}
-                          onChange={e => setModalData({ ...modalData, query_status: e.target.value })}
-                        >
-                          <option value="Open">Open</option>
-                          <option value="Resolved">Resolved</option>
-                          <option value="Cancelled">Cancelled</option>
+                          <option value="Pending">Pending</option>
+                          <option value="Draft">Draft</option>
+                          <option value="Submitted">Submitted</option>
+                          <option value="Approved">Approved</option>
                         </select>
                       </div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Query Remark</label>
+                      <label className="form-label">Remark</label>
                       <input
                         type="text"
-                        value={modalData.query_remark || ""}
-                        onChange={e => setModalData({ ...modalData, query_remark: e.target.value })}
+                        placeholder="Remark or notes"
+                        value={modalData.remark || ""}
+                        onChange={e => setModalData({ ...modalData, remark: e.target.value })}
                       />
                     </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label className="form-label">Proposal Status</label>
-                        <select
-                          value={modalData.proposal_status || "Pending"}
-                          onChange={e => setModalData({ ...modalData, proposal_status: e.target.value })}
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="Submitted">Submitted</option>
-                          <option value="Approved">Approved</option>
-                          <option value="Rejected">Rejected</option>
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Overall RFQ Status</label>
-                        <select
-                          value={modalData.overall_rfq_status || "Open"}
-                          onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
-                        >
-                          <option value="Open">Open</option>
-                          <option value="In Progress">In Progress</option>
-                          <option value="Submitted">Submitted</option>
-                          <option value="Completed">Completed</option>
-                        </select>
-                      </div>
+                    <div className="form-group">
+                      <label className="form-label">Over all status</label>
+                      <select
+                        value={modalData.overall_rfq_status || "Open"}
+                        onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
+                      >
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Submitted">Submitted</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Cancelled">Cancelled</option>
+                      </select>
                     </div>
                   </>
                 )}

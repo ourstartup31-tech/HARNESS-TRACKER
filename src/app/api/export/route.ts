@@ -13,7 +13,34 @@ export async function GET(request: Request) {
     let filename = "export";
 
     if (type === "rfq") {
-      data = RFQService.list();
+      const rawData = RFQService.list() as any[];
+      data = rawData.map((r, idx) => ({
+        "Sr .No (unique RFQ No.)": r.rfq_number || (idx + 1),
+        "harness part no.": r.harness_number || "",
+        "customer revision": r.revision_code || "",
+        "fg code": r.fg_code || "",
+        "fg rev.": r.fg_rev || "",
+        "description": r.description || (r.customer_name ? `${r.customer_name} - ${r.model_name}` : ""),
+        "marketing in put received date": r.marketing_input_date || "",
+        "design in put received date": r.design_input_date || "",
+        "Query sent date": r.query_submitted_date || "",
+        "Query resolve date": r.reply_received_date || "",
+        "Query type": r.query_type || "",
+        "Query status": r.query_status || (r.query_yes_no ? "Open" : "No Query"),
+        "Unique list share date": r.unique_list_share_date || "",
+        "Unique RFQ No.": r.rfq_number || "",
+        "Unique status": r.unique_status || r.overall_rfq_status || "Open",
+        "costing BOM prepare date": r.costing_bom_prepare_date || "",
+        "Costing BOM shared date": r.costing_bom_submitted_date || "",
+        "Costing BOM Status": r.costing_bom_status || (r.costing_bom_submitted_date ? "Submitted" : "Pending"),
+        "Remark": r.remark || r.query_remark || r.proposal_remark || "",
+        "Over all status": r.overall_rfq_status || "Open",
+        "No. of ckt": r.circuit_count ?? 0,
+        "Volume": r.volume ?? 0,
+        "Start date": r.work_start_date || "",
+        "Target Date": r.target_date || "",
+        "Actual Date": r.completion_date || "",
+      }));
       filename = "RFQ_Tracker";
     } else if (type === "ecn") {
       data = ECNService.list();
