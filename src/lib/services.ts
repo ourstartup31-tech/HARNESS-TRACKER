@@ -235,46 +235,95 @@ export const RevisionService = {
 // 3. RFQ SERVICE (QUERY BLOCKING & UNIQUE NUMBERING)
 // -------------------------------------------------------------
 export const RFQService = {
-  generateNextNumber(year = new Date().getFullYear()): string {
+  generateNextNumber(): string {
     const db = getDb();
-    const prefix = `RFQ-${year}-`;
-    const rows = db.prepare("SELECT rfq_number FROM rfqs WHERE rfq_number LIKE ?").all(`${prefix}%`) as any[];
+    const prefix = "RFQ61826";
+    const rows = db.prepare(`
+      SELECT rfq_number, sr_no, unique_rfq_no 
+      FROM rfqs 
+      WHERE rfq_number LIKE ? OR sr_no LIKE ? OR unique_rfq_no LIKE ?
+    `).all(`${prefix}%`, `${prefix}%`, `${prefix}%`) as any[];
     let maxSeq = 0;
     for (const r of rows) {
-      const parts = r.rfq_number.split("-");
-      const seq = parseInt(parts[parts.length - 1], 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      for (const field of [r.rfq_number, r.sr_no, r.unique_rfq_no]) {
+        const numStr = (field || "").trim();
+        if (numStr.startsWith(prefix)) {
+          const seqStr = numStr.slice(prefix.length);
+          const seq = parseInt(seqStr, 10);
+          if (!isNaN(seq) && seq > maxSeq) {
+            maxSeq = seq;
+          }
+        }
+      }
     }
-    return `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
+    const nextSeq = maxSeq + 1;
+    return `${prefix}${String(nextSeq).padStart(4, "0")}`;
   },
 
   list() {
     const db = getDb();
-    return db.prepare(`
+    const rows = db.prepare(`
       SELECT 
         r.*, 
-        h.harness_number, 
-        rev.revision_code, 
+        COALESCE(r.customer_name, c.name, '') as customer_name,
+        COALESCE(r.review_note, '') as review_note,
+        COALESCE(r.drawing_number, '') as drawing_number,
+        COALESCE(r.model, p.model_name, '') as model,
+        COALESCE(r.model, p.model_name, '') as model_name,
+        COALESCE(r.harness_part_no, h.harness_number) as harness_number, 
+        COALESCE(r.customer_revision, rev.revision_code) as revision_code, 
         rev.sop_number, 
-        rev.circuit_count, 
-        rev.volume, 
-        p.model_name, 
-        c.name as customer_name
+        COALESCE(r.no_of_ckt, rev.circuit_count) as circuit_count, 
+        COALESCE(r.volume, rev.volume) as volume, 
+        COALESCE(r.engineer_name, eng.name, '') as engineer_name
       FROM rfqs r
-      JOIN harnesses h ON r.harness_id = h.id
-      JOIN revisions rev ON r.revision_id = rev.id
-      JOIN projects p ON h.project_id = p.id
-      JOIN customers c ON p.customer_id = c.id
+      LEFT JOIN harnesses h ON r.harness_id = h.id
+      LEFT JOIN revisions rev ON r.revision_id = rev.id
+      LEFT JOIN projects p ON h.project_id = p.id
+      LEFT JOIN customers c ON p.customer_id = c.id
+      LEFT JOIN engineers eng ON r.engineer_id = eng.id
       ORDER BY r.id DESC
-    `).all();
+    `).all() as any[];
+
+    return rows.map((r) => {
+      const isMilestoneClosed = (s?: string | null) => {
+        if (!s) return false;
+        const lower = s.trim().toLowerCase();
+        return lower === "close" || lower === "closed";
+      };
+      const allClosed = isMilestoneClosed(r.query_status) && isMilestoneClosed(r.unique_status) && isMilestoneClosed(r.costing_bom_status);
+      if (allClosed) {
+        r.overall_rfq_status = "Close";
+      } else if (isMilestoneClosed(r.overall_rfq_status)) {
+        r.overall_rfq_status = "Open";
+      } else if (!r.overall_rfq_status || r.overall_rfq_status === "Submitted" || r.overall_rfq_status === "In Progress" || r.overall_rfq_status === "need to review") {
+        r.overall_rfq_status = "Open";
+      }
+      return r;
+    });
   },
 
   create(data: {
-    harness_id: number;
-    revision_id: number;
+    harness_id?: number | null;
+    revision_id?: number | null;
+    customer_name?: string;
+    drawing_number?: string;
+    model?: string;
+    engineer_id?: number | null;
+    engineer_name?: string;
+    harness_part_no?: string;
+    customer_revision?: string;
+    harness_number?: string;
+    revision_code?: string;
+    sr_no?: string;
+    rfq_number?: string;
+    unique_rfq_no?: string;
     fg_code?: string;
     fg_rev?: string;
     description?: string;
+    no_of_ckt?: number | string;
+    volume?: number | string;
+    circuit_count?: number | string;
     marketing_input_date?: string;
     design_input_date?: string;
     work_start_date?: string;
@@ -292,69 +341,174 @@ export const RFQService = {
     reply_received_date?: string;
     query_resolve_date?: string;
     query_type?: string;
-    query_status?: "Open" | "Resolved" | "Cancelled";
+    query_status?: string;
     query_remark?: string;
     unique_list_share_date?: string;
     unique_status?: string;
     proposal_yes_no?: boolean;
     proposal_submitted_date?: string;
-    proposal_status?: "Pending" | "Submitted" | "Approved" | "Rejected";
+    proposal_status?: string;
     proposal_remark?: string;
     remark?: string;
-    overall_rfq_status?: "Open" | "In Progress" | "Submitted" | "Completed" | "Cancelled";
+    review_note?: string;
+    overall_rfq_status?: string;
+    create_ecn?: boolean;
     created_by?: string;
   }) {
     const db = getDb();
+
+    // POKA-YOKE: End Date > Starting Date validation!
+    const startDate = data.work_start_date || data.start_date || null;
+    const targetDate = data.target_date || null;
+    const actualDate = data.completion_date || data.actual_date || null;
+
+    if (startDate && targetDate && targetDate <= startDate) {
+      throw new Error(`Target Date (${targetDate}) must be greater than Start Date (${startDate}).`);
+    }
+    if (startDate && actualDate && actualDate <= startDate) {
+      throw new Error(`Actual Date (${actualDate}) must be greater than Start Date (${startDate}).`);
+    }
 
     // POKA-YOKE: Blocking query check!
     const queryYes = data.query_yes_no ? 1 : 0;
     const queryStatus = data.query_status || "Open";
     const bomDate = data.costing_bom_submitted_date || data.costing_bom_shared_date;
-    if (queryYes === 1 && queryStatus === "Open" && bomDate) {
+    const isQueryUnresolved = queryYes === 1 && queryStatus !== "Close" && queryStatus !== "Resolved";
+    if (isQueryUnresolved && bomDate) {
       throw new Error(
         "Cannot record Costing BOM Submitted Date while an unresolved query exists. " +
         "The unresolved query must be resolved before submitting Costing BOM."
       );
     }
 
-    const rfqNumber = this.generateNextNumber();
+    // POKA-YOKE: Overall status depends on other columns!
+    const isClosedVal = (s?: string | null) => {
+      if (!s) return false;
+      const lower = s.trim().toLowerCase();
+      return lower === "close" || lower === "closed";
+    };
+
+    const uniqueStatus = data.unique_status || "Open";
+    const costingBomStatus = data.costing_bom_status || "Open";
+    const allMilestonesClosed = isClosedVal(queryStatus) && isClosedVal(uniqueStatus) && isClosedVal(costingBomStatus);
+    let overallStatus = data.overall_rfq_status || (allMilestonesClosed ? "Close" : "Open");
+
+    if (isClosedVal(overallStatus) && !allMilestonesClosed) {
+      const openParts: string[] = [];
+      if (!isClosedVal(queryStatus)) openParts.push(`Query status is '${queryStatus}'`);
+      if (!isClosedVal(uniqueStatus)) openParts.push(`Unique status is '${uniqueStatus}'`);
+      if (!isClosedVal(costingBomStatus)) openParts.push(`Costing BOM status is '${costingBomStatus}'`);
+      throw new Error(
+        `Cannot set Overall status to 'Close' because other milestone columns are still open (${openParts.join(", ")}). All milestone statuses must be 'Close' first.`
+      );
+    }
+
+    if (allMilestonesClosed) {
+      overallStatus = "Close";
+    }
+
+    const rfqNumber = data.rfq_number?.trim() || this.generateNextNumber();
+    const srNo = data.sr_no?.trim() || rfqNumber;
+    const uniqueRfqNo = data.unique_rfq_no?.trim() || rfqNumber;
+    const drawingNumber = data.drawing_number?.trim() || null;
+    const modelVal = data.model?.trim() || null;
+    const engineerId = data.engineer_id ? Number(data.engineer_id) : null;
+    let engineerName = data.engineer_name?.trim() || null;
+    if (engineerId && !engineerName) {
+      const eng = db.prepare("SELECT name FROM engineers WHERE id = ?").get(engineerId) as any;
+      if (eng) engineerName = eng.name;
+    }
+
+    const harnessPartNo = (data.harness_part_no ?? data.harness_number ?? "") ? String(data.harness_part_no ?? data.harness_number).trim() : null;
+    const customerRevision = (data.customer_revision ?? data.revision_code ?? "") ? String(data.customer_revision ?? data.revision_code).trim() : null;
+    const harnessId = data.harness_id ? Number(data.harness_id) : null;
+    const revisionId = data.revision_id ? Number(data.revision_id) : null;
+    const noOfCkt = (data.no_of_ckt !== undefined && data.no_of_ckt !== null && data.no_of_ckt !== "")
+      ? Number(String(data.no_of_ckt).replace(/[^0-9]/g, ""))
+      : (data.circuit_count !== undefined && data.circuit_count !== null && data.circuit_count !== "")
+        ? Number(String(data.circuit_count).replace(/[^0-9]/g, ""))
+        : null;
+    const volumeVal = (data.volume !== undefined && data.volume !== null && data.volume !== "")
+      ? Number(String(data.volume).replace(/[^0-9]/g, ""))
+      : null;
     const user = data.created_by || "Engineer";
 
     const info = db.prepare(`
       INSERT INTO rfqs (
-        rfq_number, harness_id, revision_id, fg_code, fg_rev, description,
+        rfq_number, customer_name, sr_no, unique_rfq_no, drawing_number, model, engineer_id, engineer_name,
+        harness_id, revision_id,
+        harness_part_no, customer_revision,
+        fg_code, fg_rev, description,
+        no_of_ckt, volume,
         marketing_input_date, design_input_date, work_start_date, target_date, completion_date,
         costing_bom_prepare_date, costing_bom_submitted_date, costing_bom_status,
         query_yes_no, query_submitted_date, reply_received_date, query_type, query_status, query_remark,
         unique_list_share_date, unique_status,
         proposal_yes_no, proposal_submitted_date, proposal_status, proposal_remark,
-        remark, overall_rfq_status, created_by, modified_by
+        remark, review_note, overall_rfq_status, created_by, modified_by
       ) VALUES (
-        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?,
+        ?, ?,
+        ?, ?, ?,
+        ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
         ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?
+        ?, ?, ?, ?, ?
       )
     `).run(
-      rfqNumber, data.harness_id, data.revision_id, data.fg_code || null, data.fg_rev || null, data.description || null,
-      data.marketing_input_date || null, data.design_input_date || null, (data.work_start_date || data.start_date) || null, data.target_date || null, (data.completion_date || data.actual_date) || null,
-      data.costing_bom_prepare_date || null, bomDate || null, data.costing_bom_status || "Pending",
+      rfqNumber, data.customer_name?.trim() || null, srNo, uniqueRfqNo, drawingNumber, modelVal, engineerId, engineerName,
+      harnessId, revisionId,
+      harnessPartNo, customerRevision,
+      data.fg_code || null, data.fg_rev || null, data.description || null,
+      noOfCkt, volumeVal,
+      data.marketing_input_date || null, data.design_input_date || null, startDate, targetDate, actualDate,
+      data.costing_bom_prepare_date || null, bomDate || null, costingBomStatus,
       queryYes, (data.query_submitted_date || data.query_sent_date) || null, (data.reply_received_date || data.query_resolve_date) || null, data.query_type || null, queryStatus, (data.query_remark || data.remark) || null,
-      data.unique_list_share_date || null, data.unique_status || "Open",
-      data.proposal_yes_no ? 1 : 0, data.proposal_submitted_date || null, data.proposal_status || "Pending", data.proposal_remark || null,
-      data.remark || null, data.overall_rfq_status || "Open", user, user
+      data.unique_list_share_date || null, uniqueStatus,
+      data.proposal_yes_no ? 1 : 0, data.proposal_submitted_date || null, data.proposal_status || "Open", data.proposal_remark || null,
+      data.remark || null, data.review_note || null, overallStatus, user, user
     );
 
-    return db.prepare("SELECT * FROM rfqs WHERE id = ?").get(info.lastInsertRowid);
+    const createdRfq = db.prepare("SELECT * FROM rfqs WHERE id = ?").get(info.lastInsertRowid) as any;
+    if (data.create_ecn) {
+      try {
+        ECNService.createFromRFQ(createdRfq);
+      } catch (err) {
+        console.error("Failed to auto-create ECN from RFQ:", err);
+      }
+    }
+    return createdRfq;
   },
 
   update(id: number, data: any, modifiedBy = "Engineer") {
     const db = getDb();
     const rfq = db.prepare("SELECT * FROM rfqs WHERE id = ?").get(id) as any;
     if (!rfq) throw new Error("RFQ not found.");
+    if (rfq.is_deleted === 1) {
+      throw new Error("Cannot update a deleted RFQ record.");
+    }
+
+    // POKA-YOKE: End Date > Starting Date validation!
+    const startDate = (data.work_start_date !== undefined || data.start_date !== undefined)
+      ? (data.work_start_date || data.start_date || null)
+      : (rfq.work_start_date || rfq.start_date || null);
+    const targetDate = data.target_date !== undefined
+      ? (data.target_date || null)
+      : (rfq.target_date || null);
+    const actualDate = (data.completion_date !== undefined || data.actual_date !== undefined)
+      ? (data.completion_date || data.actual_date || null)
+      : (rfq.completion_date || rfq.actual_date || null);
+
+    if (startDate && targetDate && targetDate <= startDate) {
+      throw new Error(`Target Date (${targetDate}) must be greater than Start Date (${startDate}).`);
+    }
+    if (startDate && actualDate && actualDate <= startDate) {
+      throw new Error(`Actual Date (${actualDate}) must be greater than Start Date (${startDate}).`);
+    }
 
     const queryYes = data.query_yes_no !== undefined ? (data.query_yes_no ? 1 : 0) : rfq.query_yes_no;
     const queryStatus = data.query_status || rfq.query_status;
@@ -362,18 +516,80 @@ export const RFQService = {
       ? (data.costing_bom_submitted_date || data.costing_bom_shared_date)
       : rfq.costing_bom_submitted_date;
 
-    if (queryYes === 1 && queryStatus === "Open" && bomDate) {
+    const isQueryUnresolved = queryYes === 1 && queryStatus !== "Close" && queryStatus !== "Resolved";
+    if (isQueryUnresolved && bomDate) {
       throw new Error(
         "Cannot record Costing BOM Submitted Date while an unresolved query exists. " +
         "The unresolved query must be resolved before submitting Costing BOM."
       );
     }
 
+    // POKA-YOKE: Overall status depends on other columns!
+    const isClosedVal = (s?: string | null) => {
+      if (!s) return false;
+      const lower = s.trim().toLowerCase();
+      return lower === "close" || lower === "closed";
+    };
+
+    const uniqueStatus = data.unique_status !== undefined ? data.unique_status : rfq.unique_status;
+    const costingBomStatus = data.costing_bom_status !== undefined ? data.costing_bom_status : rfq.costing_bom_status;
+    let overallStatus = data.overall_rfq_status !== undefined ? data.overall_rfq_status : rfq.overall_rfq_status;
+
+    const areAllSubStatusesClosed = isClosedVal(queryStatus) && isClosedVal(uniqueStatus) && isClosedVal(costingBomStatus);
+
+    if (data.overall_rfq_status !== undefined && isClosedVal(data.overall_rfq_status) && !areAllSubStatusesClosed) {
+      const openParts: string[] = [];
+      if (!isClosedVal(queryStatus)) openParts.push(`Query status is '${queryStatus}'`);
+      if (!isClosedVal(uniqueStatus)) openParts.push(`Unique status is '${uniqueStatus}'`);
+      if (!isClosedVal(costingBomStatus)) openParts.push(`Costing BOM status is '${costingBomStatus}'`);
+      throw new Error(
+        `Cannot set Overall status to 'Close' because other milestone columns are still open (${openParts.join(", ")}). All milestone statuses must be 'Close' first.`
+      );
+    }
+
+    // Auto-dependency:
+    // When all three milestone columns are Close, overall status automatically becomes "Close"
+    if (areAllSubStatusesClosed) {
+      overallStatus = "Close";
+    } else if (isClosedVal(overallStatus)) {
+      // If any milestone column is open/unresolved, overall status automatically reverts to "Open"
+      overallStatus = "Open";
+    }
+
+    const engineerId = data.engineer_id !== undefined ? (data.engineer_id ? Number(data.engineer_id) : null) : (rfq.engineer_id || null);
+    let engineerName = data.engineer_name !== undefined ? (data.engineer_name || null) : (rfq.engineer_name || null);
+    if (engineerId && !engineerName) {
+      const eng = db.prepare("SELECT name FROM engineers WHERE id = ?").get(engineerId) as any;
+      if (eng) engineerName = eng.name;
+    }
+
+    const noOfCkt = (data.no_of_ckt !== undefined && data.no_of_ckt !== null && data.no_of_ckt !== "")
+      ? Number(String(data.no_of_ckt).replace(/[^0-9]/g, ""))
+      : (data.circuit_count !== undefined && data.circuit_count !== null && data.circuit_count !== "")
+        ? Number(String(data.circuit_count).replace(/[^0-9]/g, ""))
+        : null;
+    const volumeVal = (data.volume !== undefined && data.volume !== null && data.volume !== "")
+      ? Number(String(data.volume).replace(/[^0-9]/g, ""))
+      : null;
+    const harnessPartNo = (data.harness_part_no ?? data.harness_number) !== undefined ? (data.harness_part_no ?? data.harness_number) : null;
+    const customerRevision = (data.customer_revision ?? data.revision_code) !== undefined ? (data.customer_revision ?? data.revision_code) : null;
+
     db.prepare(`
       UPDATE rfqs SET
+        customer_name = COALESCE(?, customer_name),
+        sr_no = COALESCE(?, sr_no),
+        unique_rfq_no = COALESCE(?, unique_rfq_no),
+        drawing_number = COALESCE(?, drawing_number),
+        model = COALESCE(?, model),
+        engineer_id = ?,
+        engineer_name = ?,
+        harness_part_no = COALESCE(?, harness_part_no),
+        customer_revision = COALESCE(?, customer_revision),
         fg_code = COALESCE(?, fg_code),
         fg_rev = COALESCE(?, fg_rev),
         description = COALESCE(?, description),
+        no_of_ckt = COALESCE(?, no_of_ckt),
+        volume = COALESCE(?, volume),
         marketing_input_date = COALESCE(?, marketing_input_date),
         design_input_date = COALESCE(?, design_input_date),
         work_start_date = COALESCE(?, work_start_date),
@@ -395,14 +611,27 @@ export const RFQService = {
         proposal_status = COALESCE(?, proposal_status),
         proposal_remark = COALESCE(?, proposal_remark),
         remark = COALESCE(?, remark),
-        overall_rfq_status = COALESCE(?, overall_rfq_status),
+        review_note = COALESCE(?, review_note),
+        overall_rfq_status = ?,
+        is_deleted = COALESCE(?, is_deleted),
         modified_by = ?,
         modified_at = datetime('now')
       WHERE id = ?
     `).run(
+      data.customer_name ?? null,
+      data.sr_no ?? null,
+      data.unique_rfq_no ?? null,
+      data.drawing_number ?? null,
+      data.model ?? null,
+      engineerId,
+      engineerName,
+      harnessPartNo,
+      customerRevision,
       data.fg_code ?? null,
       data.fg_rev ?? null,
       data.description ?? null,
+      noOfCkt,
+      volumeVal,
       data.marketing_input_date ?? null,
       data.design_input_date ?? null,
       (data.work_start_date || data.start_date) ?? null,
@@ -424,12 +653,24 @@ export const RFQService = {
       data.proposal_status ?? null,
       data.proposal_remark ?? null,
       data.remark ?? null,
-      data.overall_rfq_status ?? null,
+      data.review_note ?? null,
+      overallStatus,
+      data.is_deleted !== undefined ? (data.is_deleted ? 1 : 0) : null,
       modifiedBy,
       id
     );
 
     return db.prepare("SELECT * FROM rfqs WHERE id = ?").get(id);
+  },
+
+  softDelete(id: number) {
+    const db = getDb();
+    db.prepare("UPDATE rfqs SET is_deleted = 1, modified_at = datetime('now') WHERE id = ?").run(id);
+    return db.prepare("SELECT * FROM rfqs WHERE id = ?").get(id);
+  },
+
+  restore(id: number) {
+    throw new Error("Restoring deleted RFQ records is not permitted. Once deleted, RFQs remain permanently archived for traceability.");
   }
 };
 
@@ -454,33 +695,56 @@ export const ECNService = {
     const db = getDb();
     const ecns = db.prepare(`
       SELECT e.*, 
+        COALESCE(e.customer_name, c.name, '') as customer_name,
+        COALESCE(e.model_name, p.model_name, '') as model_name,
+        COALESCE(e.rfq_no, r.rfq_number, r.sr_no, '') as rfq_no,
+        COALESCE(e.overall_status, e.ecn_status, 'Open') as overall_status,
+        COALESCE(e.stage, 'sample') as stage,
+        COALESCE(e.query_status, r.query_status, 'Open') as query_status,
+        COALESCE(e.unique_list_share_date, r.unique_list_share_date, '') as unique_list_share_date,
+        COALESCE(e.unique_rfq_no, r.unique_rfq_no, r.rfq_number, '') as unique_rfq_no,
+        COALESCE(e.unique_status, r.unique_status, 'Open') as unique_status,
+        COALESCE(e.sap_bom_upload_date, '') as sap_bom_upload_date,
+        COALESCE(e.sap_bom_released_date, '') as sap_bom_released_date,
+        COALESCE(e.prd_bom_release_date, '') as prd_bom_release_date,
+        COALESCE(e.label_upload_date, '') as label_upload_date,
+        COALESCE(e.min_by_engineer_date, '') as min_by_engineer_date,
+        COALESCE(e.min_by_ppc, '') as min_by_ppc,
+        COALESCE(e.min_status, 'Open') as min_status,
+        COALESCE(e.review, '') as review,
+        COALESCE(e.no_of_ckt, r.no_of_ckt, s_rev.circuit_count, 0) as no_of_ckt,
+        COALESCE(e.volume, r.volume, s_rev.volume, 0) as volume,
+        COALESCE(e.work_start_date, '') as work_start_date,
+        COALESCE(e.target_date, '') as target_date,
+        COALESCE(e.completion_date, e.min_meeting_date, '') as completion_date,
+        COALESCE(e.completion_date, e.min_meeting_date, '') as actual_date,
         h.harness_number, 
         s_rev.revision_code as source_rev_code, 
         n_rev.revision_code as new_rev_code,
         p_eng.name as primary_engineer_name, 
         s_eng.name as support_engineer_name,
-        r.rfq_number as related_rfq_number,
-        p.model_name, 
-        c.name as customer_name
+        r.rfq_number as related_rfq_number
       FROM ecns e
-      JOIN harnesses h ON e.harness_id = h.id
-      JOIN revisions s_rev ON e.source_revision_id = s_rev.id
+      LEFT JOIN harnesses h ON e.harness_id = h.id
+      LEFT JOIN revisions s_rev ON e.source_revision_id = s_rev.id
       LEFT JOIN revisions n_rev ON e.new_revision_id = n_rev.id
-      JOIN engineers p_eng ON e.primary_engineer_id = p_eng.id
+      LEFT JOIN engineers p_eng ON e.primary_engineer_id = p_eng.id
       LEFT JOIN engineers s_eng ON e.support_engineer_id = s_eng.id
       LEFT JOIN rfqs r ON e.rfq_id = r.id
-      JOIN projects p ON h.project_id = p.id
-      JOIN customers c ON p.customer_id = c.id
+      LEFT JOIN projects p ON h.project_id = p.id
+      LEFT JOIN customers c ON p.customer_id = c.id
+      WHERE COALESCE(e.is_deleted, 0) = 0
       ORDER BY e.id DESC
     `).all() as any[];
 
     // Calculate duration fields in calendar days
     return ecns.map(e => {
       const plannedDuration = daysBetween(e.target_date, e.work_start_date);
-      const actualDuration = daysBetween(e.min_meeting_date, e.work_start_date);
+      const actualDuration = daysBetween(e.completion_date || e.min_meeting_date, e.work_start_date);
       let delayDays = 0;
-      if (e.min_meeting_date && e.target_date) {
-        const diff = daysBetween(e.min_meeting_date, e.target_date);
+      const minDate = e.completion_date || e.min_meeting_date;
+      if (minDate && e.target_date) {
+        const diff = daysBetween(minDate, e.target_date);
         if (diff !== null && diff > 0) delayDays = diff;
       }
       return {
@@ -492,31 +756,115 @@ export const ECNService = {
     });
   },
 
+  createFromRFQ(rfq: any) {
+    const nextNum = this.generateNextNumber();
+    const db = getDb();
+    const user = rfq.created_by || "Engineer";
+
+    const info = db.prepare(`
+      INSERT INTO ecns (
+        ecn_number, rfq_id, rfq_no, stage, customer_name, model_name,
+        query_status, unique_list_share_date, unique_rfq_no, unique_status,
+        sap_bom_upload_date, sap_bom_released_date, prd_bom_release_date,
+        label_upload_date, min_by_engineer_date, min_by_ppc, min_status,
+        review, overall_status, no_of_ckt, volume, work_start_date, target_date, completion_date,
+        harness_id, source_revision_id, primary_engineer_id, change_reason,
+        stage_context, development_type, ecn_status, created_by, modified_by
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?
+      )
+    `).run(
+      nextNum,
+      rfq.id,
+      rfq.sr_no || rfq.rfq_number,
+      "sample",
+      rfq.customer_name || "",
+      rfq.model || "",
+      rfq.query_status || "Open",
+      rfq.unique_list_share_date || "",
+      rfq.unique_rfq_no || rfq.rfq_number || "",
+      rfq.unique_status || "Open",
+      "", "", "",
+      "", "", "", "Open",
+      "",
+      rfq.overall_rfq_status || "Open",
+      (rfq.no_of_ckt !== undefined && rfq.no_of_ckt !== null && rfq.no_of_ckt !== "") ? Number(rfq.no_of_ckt) : null,
+      (rfq.volume !== undefined && rfq.volume !== null && rfq.volume !== "") ? Number(rfq.volume) : null,
+      rfq.work_start_date || "",
+      rfq.target_date || "",
+      rfq.completion_date || "",
+      rfq.harness_id || null,
+      rfq.revision_id || null,
+      rfq.engineer_id || null,
+      `Autofilled from RFQ ${rfq.rfq_number || rfq.sr_no}`,
+      "Sample",
+      "New Development",
+      rfq.overall_rfq_status || "Open",
+      user,
+      user
+    );
+
+    return db.prepare("SELECT * FROM ecns WHERE id = ?").get(info.lastInsertRowid);
+  },
+
   create(data: {
-    harness_id: number;
-    source_revision_id: number;
-    stage_context: "Sample" | "Production";
-    development_type: "New Development" | "Productized";
-    change_reason: string;
-    primary_engineer_id: number;
-    target_date: string;
-    revision_impact?: "New Revision" | "Same Revision";
+    harness_id?: number | null;
+    source_revision_id?: number | null;
+    stage_context?: "Sample" | "Production" | string;
+    development_type?: "New Development" | "Productized" | string;
+    change_reason?: string;
+    primary_engineer_id?: number | null;
+    target_date?: string | null;
+    revision_impact?: "New Revision" | "Same Revision" | string;
     new_revision_id?: number | null;
     costing_required?: boolean;
     rfq_id?: number | null;
     support_engineer_id?: number | null;
-    design_input_date?: string;
-    work_start_date?: string;
-    min_meeting_date?: string;
-    ecn_status?: string;
-    delay_reason?: string;
+    design_input_date?: string | null;
+    work_start_date?: string | null;
+    min_meeting_date?: string | null;
+    ecn_status?: string | null;
+    delay_reason?: string | null;
     created_by?: string;
+    rfq_no?: string | null;
+    stage?: string | null;
+    customer_name?: string | null;
+    model_name?: string | null;
+    query_status?: string | null;
+    unique_list_share_date?: string | null;
+    unique_rfq_no?: string | null;
+    unique_status?: string | null;
+    sap_bom_upload_date?: string | null;
+    sap_bom_released_date?: string | null;
+    prd_bom_release_date?: string | null;
+    label_upload_date?: string | null;
+    min_by_engineer_date?: string | null;
+    min_by_ppc?: string | null;
+    min_status?: string | null;
+    review?: string | null;
+    overall_status?: string | null;
+    no_of_ckt?: number | string | null;
+    volume?: number | string | null;
+    start_date?: string | null;
+    actual_date?: string | null;
+    completion_date?: string | null;
   }) {
     const db = getDb();
     const cleanReason = (data.change_reason || "").trim();
-    if (!cleanReason) throw new Error("Change/Reason is mandatory for every ECN.");
-    if (!data.primary_engineer_id) throw new Error("Primary Engineer is mandatory.");
-    if (!data.target_date) throw new Error("Target Date is mandatory.");
+
+    // If formal creation without customer_name/rfq_no, enforce legacy mandatory fields
+    const isLegacyCall = !data.rfq_no && !data.customer_name && data.harness_id;
+    if (isLegacyCall) {
+      if (!cleanReason) throw new Error("Change/Reason is mandatory for every ECN.");
+      if (!data.primary_engineer_id) throw new Error("Primary Engineer is mandatory.");
+      if (!data.target_date) throw new Error("Target Date is mandatory.");
+    }
 
     const impact = data.revision_impact || "Same Revision";
     if (impact === "New Revision" && !data.new_revision_id) {
@@ -537,30 +885,73 @@ export const ECNService = {
       }
     }
 
-    const ecnNumber = this.generateNextNumber();
-    const completionDate = data.min_meeting_date || null;
+    const ecnNumber = (data as any).ecn_number || this.generateNextNumber();
+    const completionDate = data.completion_date || data.actual_date || data.min_meeting_date || null;
     const user = data.created_by || "Engineer";
 
     const info = db.prepare(`
       INSERT INTO ecns (
-        ecn_number, harness_id, source_revision_id, stage_context, development_type,
+        ecn_number, rfq_no, stage, customer_name, model_name,
+        query_status, unique_list_share_date, unique_rfq_no, unique_status,
+        sap_bom_upload_date, sap_bom_released_date, prd_bom_release_date,
+        label_upload_date, min_by_engineer_date, min_by_ppc, min_status,
+        review, overall_status, no_of_ckt, volume, work_start_date, target_date, completion_date,
+        harness_id, source_revision_id, stage_context, development_type,
         change_reason, revision_impact, new_revision_id, costing_required, rfq_id,
-        primary_engineer_id, support_engineer_id, design_input_date, work_start_date,
-        target_date, min_meeting_date, completion_date, ecn_status, delay_reason,
-        created_by, modified_by
+        primary_engineer_id, support_engineer_id, design_input_date, min_meeting_date,
+        ecn_status, delay_reason, created_by, modified_by
       ) VALUES (
         ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
-        ?, ?
+        ?, ?, ?, ?,
+        ?, ?, ?, ?
       )
     `).run(
-      ecnNumber, data.harness_id, data.source_revision_id, data.stage_context, data.development_type,
-      cleanReason, impact, data.new_revision_id || null, costingRequired, data.rfq_id || null,
-      data.primary_engineer_id, data.support_engineer_id || null, data.design_input_date || null, data.work_start_date || null,
-      data.target_date, data.min_meeting_date || null, completionDate, data.ecn_status || "In Progress", cleanDelay || null,
-      user, user
+      ecnNumber,
+      data.rfq_no || null,
+      data.stage || "sample",
+      data.customer_name || null,
+      data.model_name || null,
+      data.query_status || "Open",
+      data.unique_list_share_date || null,
+      data.unique_rfq_no || null,
+      data.unique_status || "Open",
+      data.sap_bom_upload_date || null,
+      data.sap_bom_released_date || null,
+      data.prd_bom_release_date || null,
+      data.label_upload_date || null,
+      data.min_by_engineer_date || null,
+      data.min_by_ppc || null,
+      data.min_status || "Open",
+      data.review || null,
+      data.overall_status || data.ecn_status || "Open",
+      (data.no_of_ckt !== undefined && data.no_of_ckt !== null && data.no_of_ckt !== "") ? Number(String(data.no_of_ckt).replace(/[^0-9]/g, "")) : null,
+      (data.volume !== undefined && data.volume !== null && data.volume !== "") ? Number(String(data.volume).replace(/[^0-9]/g, "")) : null,
+      data.work_start_date || data.start_date || null,
+      data.target_date || null,
+      completionDate,
+      data.harness_id ? Number(data.harness_id) : null,
+      data.source_revision_id ? Number(data.source_revision_id) : null,
+      data.stage_context || "Sample",
+      data.development_type || "New Development",
+      cleanReason || `ECN ${ecnNumber}`,
+      impact,
+      data.new_revision_id ? Number(data.new_revision_id) : null,
+      costingRequired,
+      data.rfq_id ? Number(data.rfq_id) : null,
+      data.primary_engineer_id ? Number(data.primary_engineer_id) : null,
+      data.support_engineer_id ? Number(data.support_engineer_id) : null,
+      data.design_input_date || null,
+      data.min_meeting_date || null,
+      data.overall_status || data.ecn_status || "Open",
+      cleanDelay || null,
+      user,
+      user
     );
 
     return db.prepare("SELECT * FROM ecns WHERE id = ?").get(info.lastInsertRowid);
@@ -570,6 +961,9 @@ export const ECNService = {
     const db = getDb();
     const ecn = db.prepare("SELECT * FROM ecns WHERE id = ?").get(id) as any;
     if (!ecn) throw new Error("ECN not found.");
+    if (ecn.is_deleted === 1) {
+      throw new Error("Cannot update a deleted ECN record.");
+    }
 
     // POKA-YOKE: Primary engineer cannot be reassigned after work has started!
     if (data.primary_engineer_id !== undefined && data.primary_engineer_id !== ecn.primary_engineer_id) {
@@ -581,7 +975,7 @@ export const ECNService = {
     }
 
     // POKA-YOKE: Delay reason mandatory if MIN Meeting Date > Target Date
-    const targetDate = data.target_date || ecn.target_date;
+    const targetDate = data.target_date !== undefined ? data.target_date : ecn.target_date;
     const minDate = data.min_meeting_date !== undefined ? data.min_meeting_date : ecn.min_meeting_date;
     const delayReason = data.delay_reason !== undefined ? (data.delay_reason || "").trim() : (ecn.delay_reason || "").trim();
 
@@ -592,10 +986,41 @@ export const ECNService = {
       }
     }
 
-    const completionDate = minDate || ecn.completion_date;
+    const completionDate = (data.completion_date !== undefined || data.actual_date !== undefined)
+      ? (data.completion_date || data.actual_date || null)
+      : (minDate || ecn.completion_date);
+
+    const noOfCkt = (data.no_of_ckt !== undefined && data.no_of_ckt !== null && data.no_of_ckt !== "")
+      ? Number(String(data.no_of_ckt).replace(/[^0-9]/g, ""))
+      : (data.no_of_ckt !== undefined ? null : ecn.no_of_ckt);
+    const volumeVal = (data.volume !== undefined && data.volume !== null && data.volume !== "")
+      ? Number(String(data.volume).replace(/[^0-9]/g, ""))
+      : (data.volume !== undefined ? null : ecn.volume);
 
     db.prepare(`
       UPDATE ecns SET
+        rfq_no = COALESCE(?, rfq_no),
+        stage = COALESCE(?, stage),
+        customer_name = COALESCE(?, customer_name),
+        model_name = COALESCE(?, model_name),
+        query_status = COALESCE(?, query_status),
+        unique_list_share_date = COALESCE(?, unique_list_share_date),
+        unique_rfq_no = COALESCE(?, unique_rfq_no),
+        unique_status = COALESCE(?, unique_status),
+        sap_bom_upload_date = COALESCE(?, sap_bom_upload_date),
+        sap_bom_released_date = COALESCE(?, sap_bom_released_date),
+        prd_bom_release_date = COALESCE(?, prd_bom_release_date),
+        label_upload_date = COALESCE(?, label_upload_date),
+        min_by_engineer_date = COALESCE(?, min_by_engineer_date),
+        min_by_ppc = COALESCE(?, min_by_ppc),
+        min_status = COALESCE(?, min_status),
+        review = COALESCE(?, review),
+        overall_status = COALESCE(?, overall_status),
+        no_of_ckt = ?,
+        volume = ?,
+        work_start_date = COALESCE(?, work_start_date),
+        target_date = COALESCE(?, target_date),
+        completion_date = ?,
         stage_context = COALESCE(?, stage_context),
         development_type = COALESCE(?, development_type),
         change_reason = COALESCE(?, change_reason),
@@ -606,16 +1031,36 @@ export const ECNService = {
         primary_engineer_id = COALESCE(?, primary_engineer_id),
         support_engineer_id = ?,
         design_input_date = ?,
-        work_start_date = ?,
-        target_date = COALESCE(?, target_date),
         min_meeting_date = ?,
-        completion_date = ?,
         ecn_status = COALESCE(?, ecn_status),
         delay_reason = ?,
+        is_deleted = COALESCE(?, is_deleted),
         modified_by = ?,
         modified_at = datetime('now')
       WHERE id = ?
     `).run(
+      data.rfq_no ?? null,
+      data.stage ?? null,
+      data.customer_name ?? null,
+      data.model_name ?? null,
+      data.query_status ?? null,
+      data.unique_list_share_date ?? null,
+      data.unique_rfq_no ?? null,
+      data.unique_status ?? null,
+      data.sap_bom_upload_date ?? null,
+      data.sap_bom_released_date ?? null,
+      data.prd_bom_release_date ?? null,
+      data.label_upload_date ?? null,
+      data.min_by_engineer_date ?? null,
+      data.min_by_ppc ?? null,
+      data.min_status ?? null,
+      data.review ?? null,
+      data.overall_status ?? data.ecn_status ?? null,
+      noOfCkt,
+      volumeVal,
+      (data.work_start_date || data.start_date) ?? null,
+      data.target_date ?? null,
+      completionDate,
       data.stage_context ?? null,
       data.development_type ?? null,
       data.change_reason ?? null,
@@ -626,16 +1071,20 @@ export const ECNService = {
       data.primary_engineer_id ?? null,
       data.support_engineer_id !== undefined ? data.support_engineer_id : (ecn.support_engineer_id ?? null),
       data.design_input_date !== undefined ? data.design_input_date : (ecn.design_input_date ?? null),
-      data.work_start_date !== undefined ? data.work_start_date : (ecn.work_start_date ?? null),
-      data.target_date ?? null,
       minDate ?? null,
-      completionDate ?? null,
-      data.ecn_status ?? null,
+      data.overall_status ?? data.ecn_status ?? null,
       delayReason || null,
+      data.is_deleted !== undefined ? (data.is_deleted ? 1 : 0) : null,
       modifiedBy,
       id
     );
 
+    return db.prepare("SELECT * FROM ecns WHERE id = ?").get(id);
+  },
+
+  softDelete(id: number) {
+    const db = getDb();
+    db.prepare("UPDATE ecns SET is_deleted = 1, modified_at = datetime('now') WHERE id = ?").run(id);
     return db.prepare("SELECT * FROM ecns WHERE id = ?").get(id);
   }
 };

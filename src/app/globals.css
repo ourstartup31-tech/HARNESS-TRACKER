@@ -281,7 +281,10 @@ input, select, textarea {
   font-family: inherit;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s ease;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 input:focus, select:focus, textarea:focus {
@@ -388,6 +391,40 @@ tr:hover td {
   background-color: rgba(56, 189, 248, 0.04);
 }
 
+/* Sticky First Column for Tables (constant while scrolling horizontally) */
+.sticky-col,
+.table-container table th:first-child,
+.table-container table td:first-child {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 5;
+}
+
+.table-container table th:first-child,
+th.sticky-col {
+  z-index: 10 !important;
+  background-color: #0b1120 !important;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.5);
+  border-right: 2px solid #1e293b;
+}
+
+.table-container table td:first-child,
+td.sticky-col {
+  background-color: #0b1120 !important;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.5);
+  border-right: 2px solid #1e293b;
+}
+
+.table-container table tr:hover td:first-child,
+.table-container table tr:hover td.sticky-col {
+  background-color: #0f1c30 !important;
+}
+
+.table-container table tr.table-row-deleted td:first-child,
+.table-container table tr.table-row-deleted td.sticky-col {
+  background-color: #2b1115 !important;
+}
+
 /* Badges & Tags */
 .badge {
   display: inline-flex;
@@ -451,11 +488,26 @@ tr:hover td {
   border-radius: 12px;
   width: 100%;
   max-width: 640px;
-  max-height: 90vh;
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
   animation: modalFadeIn 0.15s ease-out;
+}
+
+.modal-card.modal-card-lg {
+  max-width: 860px;
+  max-height: 88vh;
+}
+
+/* Modal Form: Flex container ensuring modal-body scrolls and footer stays docked */
+.modal-card form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @keyframes modalFadeIn {
@@ -469,6 +521,7 @@ tr:hover td {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .modal-title {
@@ -480,9 +533,27 @@ tr:hover td {
 .modal-body {
   padding: 20px;
   overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* Custom sleek scrollbar for modal-body */
+.modal-body::-webkit-scrollbar {
+  width: 8px;
+}
+.modal-body::-webkit-scrollbar-track {
+  background: #0b1120;
+}
+.modal-body::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 .modal-footer {
@@ -493,12 +564,15 @@ tr:hover td {
   justify-content: flex-end;
   gap: 10px;
   background-color: #0b1120;
+  flex-shrink: 0;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  width: 100%;
 }
 
 .form-label {
@@ -511,6 +585,16 @@ tr:hover td {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.form-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 
 .error-banner {
@@ -532,3 +616,191 @@ tr:hover td {
   font-size: 12px;
   margin-bottom: 12px;
 }
+
+.form-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #38bdf8;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+  margin-top: 10px;
+  margin-bottom: 4px;
+}
+
+/* Date input calendar icon and picker styling */
+input[type="date"] {
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.8) sepia(100%) saturate(1000%) hue-rotate(160deg) brightness(1.2);
+  opacity: 0.95;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  filter: invert(0.9) sepia(100%) saturate(1200%) hue-rotate(160deg) brightness(1.4);
+  transform: scale(1.08);
+}
+
+/* Table inline date picker */
+.table-date-input {
+  width: 100%;
+  min-width: 130px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  border-radius: 4px;
+  color: #f1f5f9;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  color-scheme: dark;
+  transition: all 0.2s ease;
+}
+
+.table-date-input:hover {
+  border-color: #38bdf8;
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.table-date-input:focus {
+  border-color: #38bdf8;
+  background: #0f172a;
+  outline: none;
+  box-shadow: 0 0 0 1px #38bdf8;
+}
+
+/* Inline Table Editing */
+.table-inline-input {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #f1f5f9;
+  padding: 4px 8px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+.table-inline-input:hover {
+  border-color: #334155;
+  background: rgba(15, 23, 42, 0.9);
+}
+.table-inline-input:focus {
+  outline: none;
+  border-color: #38bdf8;
+  background: #0f172a;
+  box-shadow: 0 0 0 1px #38bdf8;
+}
+
+.table-status-select {
+  background: #0b1120;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  color: #e2e8f0;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  max-width: 130px;
+}
+.table-status-select:focus {
+  border-color: #38bdf8;
+}
+
+/* Deleted RFQ row styling - entire row turns red */
+.table-row-deleted {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border-left: 4px solid #ef4444 !important;
+}
+.table-row-deleted td {
+  color: #fca5a5 !important;
+  background: transparent !important;
+}
+.table-row-deleted .table-inline-input {
+  background: rgba(220, 38, 38, 0.15) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+.table-row-deleted .table-inline-input:hover,
+.table-row-deleted .table-inline-input:focus {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 1px #ef4444 !important;
+}
+.table-row-deleted .table-status-select {
+  background: rgba(45, 10, 10, 0.85) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+.deleted-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 3px;
+  background: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  margin-left: 6px;
+  text-transform: uppercase;
+}
+
+/* Prevent any updates or edits on deleted rows */
+.table-row-deleted input,
+.table-row-deleted select {
+  pointer-events: none !important;
+  opacity: 0.65 !important;
+  cursor: not-allowed !important;
+}
+
+/* Sticky first column for horizontal scrolling */
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: #1e293b !important;
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.45);
+}
+th.sticky-col {
+  z-index: 25;
+  background-color: #0f172a !important;
+}
+tr:hover .sticky-col {
+  background-color: #24344d !important;
+}
+.table-row-deleted .sticky-col {
+  background-color: #3b171f !important;
+}
+
+/* Inline Table Select Input */
+.table-inline-select {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #f1f5f9;
+  padding: 4px 6px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  outline: none;
+}
+.table-inline-select:hover {
+  border-color: #334155;
+  background: rgba(15, 23, 42, 0.9);
+}
+.table-inline-select:focus {
+  outline: none;
+  border-color: #38bdf8;
+  background: #0f172a;
+  box-shadow: 0 0 0 1px #38bdf8;
+}
+
+

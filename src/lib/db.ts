@@ -94,11 +94,22 @@ function initSchema(db: DatabaseSync) {
     CREATE TABLE IF NOT EXISTS rfqs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       rfq_number TEXT NOT NULL UNIQUE,
-      harness_id INTEGER NOT NULL REFERENCES harnesses(id) ON DELETE RESTRICT,
-      revision_id INTEGER NOT NULL REFERENCES revisions(id) ON DELETE RESTRICT,
+      customer_name TEXT,
+      sr_no TEXT,
+      unique_rfq_no TEXT,
+      drawing_number TEXT,
+      model TEXT,
+      engineer_id INTEGER REFERENCES engineers(id) ON DELETE SET NULL,
+      engineer_name TEXT,
+      harness_id INTEGER REFERENCES harnesses(id) ON DELETE SET NULL,
+      revision_id INTEGER REFERENCES revisions(id) ON DELETE SET NULL,
+      harness_part_no TEXT,
+      customer_revision TEXT,
       fg_code TEXT,
       fg_rev TEXT,
       description TEXT,
+      no_of_ckt INTEGER,
+      volume INTEGER,
       marketing_input_date TEXT,
       design_input_date TEXT,
       work_start_date TEXT,
@@ -106,49 +117,71 @@ function initSchema(db: DatabaseSync) {
       completion_date TEXT,
       costing_bom_prepare_date TEXT,
       costing_bom_submitted_date TEXT,
-      costing_bom_status TEXT NOT NULL DEFAULT 'Pending',
+      costing_bom_status TEXT NOT NULL DEFAULT 'Open',
       query_yes_no INTEGER NOT NULL DEFAULT 0,
       query_submitted_date TEXT,
       reply_received_date TEXT,
       query_type TEXT,
-      query_status TEXT NOT NULL DEFAULT 'Open' CHECK(query_status IN ('Open', 'Resolved', 'Cancelled')),
+      query_status TEXT NOT NULL DEFAULT 'Open',
       query_remark TEXT,
       unique_list_share_date TEXT,
       unique_status TEXT NOT NULL DEFAULT 'Open',
       proposal_yes_no INTEGER NOT NULL DEFAULT 0,
       proposal_submitted_date TEXT,
-      proposal_status TEXT NOT NULL DEFAULT 'Pending' CHECK(proposal_status IN ('Pending', 'Submitted', 'Approved', 'Rejected')),
+      proposal_status TEXT NOT NULL DEFAULT 'Open',
       proposal_remark TEXT,
       remark TEXT,
-      overall_rfq_status TEXT NOT NULL DEFAULT 'Open' CHECK(overall_rfq_status IN ('Open', 'In Progress', 'Submitted', 'Completed', 'Cancelled')),
+      review_note TEXT,
+      overall_rfq_status TEXT NOT NULL DEFAULT 'Open',
+      is_deleted INTEGER NOT NULL DEFAULT 0,
       created_by TEXT NOT NULL DEFAULT 'Engineer',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       modified_by TEXT NOT NULL DEFAULT 'Engineer',
       modified_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    -- ECNs (Engineering Change Notes)
+    -- ECNs (Engineering Change Notes & Tracker Sheet)
     CREATE TABLE IF NOT EXISTS ecns (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ecn_number TEXT NOT NULL UNIQUE,
-      harness_id INTEGER NOT NULL REFERENCES harnesses(id) ON DELETE RESTRICT,
-      source_revision_id INTEGER NOT NULL REFERENCES revisions(id) ON DELETE RESTRICT,
-      stage_context TEXT NOT NULL DEFAULT 'Sample' CHECK(stage_context IN ('Sample', 'Production')),
-      development_type TEXT NOT NULL DEFAULT 'New Development' CHECK(development_type IN ('New Development', 'Productized')),
-      change_reason TEXT NOT NULL,
-      revision_impact TEXT NOT NULL DEFAULT 'Same Revision' CHECK(revision_impact IN ('New Revision', 'Same Revision')),
-      new_revision_id INTEGER REFERENCES revisions(id) ON DELETE RESTRICT,
-      costing_required INTEGER NOT NULL DEFAULT 0,
-      rfq_id INTEGER REFERENCES rfqs(id) ON DELETE RESTRICT,
-      primary_engineer_id INTEGER NOT NULL REFERENCES engineers(id) ON DELETE RESTRICT,
-      support_engineer_id INTEGER REFERENCES engineers(id) ON DELETE RESTRICT,
-      design_input_date TEXT,
+      rfq_no TEXT,
+      stage TEXT NOT NULL DEFAULT 'sample',
+      customer_name TEXT,
+      model_name TEXT,
+      query_status TEXT NOT NULL DEFAULT 'Open',
+      unique_list_share_date TEXT,
+      unique_rfq_no TEXT,
+      unique_status TEXT NOT NULL DEFAULT 'Open',
+      sap_bom_upload_date TEXT,
+      sap_bom_released_date TEXT,
+      prd_bom_release_date TEXT,
+      label_upload_date TEXT,
+      min_by_engineer_date TEXT,
+      min_by_ppc TEXT,
+      min_status TEXT NOT NULL DEFAULT 'Open',
+      review TEXT,
+      overall_status TEXT NOT NULL DEFAULT 'Open',
+      no_of_ckt INTEGER,
+      volume INTEGER,
       work_start_date TEXT,
-      target_date TEXT NOT NULL,
-      min_meeting_date TEXT,
+      target_date TEXT,
       completion_date TEXT,
-      ecn_status TEXT NOT NULL DEFAULT 'In Progress' CHECK(ecn_status IN ('Draft', 'In Progress', 'Under Review', 'Completed', 'Cancelled')),
+      harness_id INTEGER REFERENCES harnesses(id) ON DELETE SET NULL,
+      source_revision_id INTEGER REFERENCES revisions(id) ON DELETE SET NULL,
+      stage_context TEXT DEFAULT 'Sample',
+      development_type TEXT DEFAULT 'New Development',
+      change_reason TEXT DEFAULT '',
+      revision_impact TEXT DEFAULT 'Same Revision',
+      new_revision_id INTEGER REFERENCES revisions(id) ON DELETE SET NULL,
+      costing_required INTEGER NOT NULL DEFAULT 0,
+      rfq_id INTEGER REFERENCES rfqs(id) ON DELETE SET NULL,
+      primary_engineer_id INTEGER REFERENCES engineers(id) ON DELETE SET NULL,
+      support_engineer_id INTEGER REFERENCES engineers(id) ON DELETE SET NULL,
+      design_input_date TEXT,
+      min_meeting_date TEXT,
+      ecn_status TEXT NOT NULL DEFAULT 'Open',
       delay_reason TEXT,
+      is_deleted INTEGER NOT NULL DEFAULT 0,
       created_by TEXT NOT NULL DEFAULT 'Engineer',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       modified_by TEXT NOT NULL DEFAULT 'Engineer',
@@ -227,12 +260,158 @@ function initSchema(db: DatabaseSync) {
 
   // Safe dynamic migration for existing rfqs table
   const rfqCols = db.prepare("PRAGMA table_info(rfqs)").all() as any[];
-  const colSet = new Set(rfqCols.map((c: any) => c.name));
+  const harnessCol = rfqCols.find((c: any) => c.name === "harness_id");
+  if (harnessCol && harnessCol.notnull === 1) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE IF NOT EXISTS rfqs_mig_temp (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rfq_number TEXT NOT NULL UNIQUE,
+        sr_no TEXT,
+        unique_rfq_no TEXT,
+        harness_id INTEGER REFERENCES harnesses(id) ON DELETE SET NULL,
+        revision_id INTEGER REFERENCES revisions(id) ON DELETE SET NULL,
+        harness_part_no TEXT,
+        customer_revision TEXT,
+        fg_code TEXT,
+        fg_rev TEXT,
+        description TEXT,
+        no_of_ckt INTEGER,
+        volume INTEGER,
+        marketing_input_date TEXT,
+        design_input_date TEXT,
+        work_start_date TEXT,
+        target_date TEXT,
+        completion_date TEXT,
+        costing_bom_prepare_date TEXT,
+        costing_bom_submitted_date TEXT,
+        costing_bom_status TEXT NOT NULL DEFAULT 'Pending',
+        query_yes_no INTEGER NOT NULL DEFAULT 0,
+        query_submitted_date TEXT,
+        reply_received_date TEXT,
+        query_type TEXT,
+        query_status TEXT NOT NULL DEFAULT 'Open' CHECK(query_status IN ('Open', 'Resolved', 'Cancelled')),
+        query_remark TEXT,
+        unique_list_share_date TEXT,
+        unique_status TEXT NOT NULL DEFAULT 'Open',
+        proposal_yes_no INTEGER NOT NULL DEFAULT 0,
+        proposal_submitted_date TEXT,
+        proposal_status TEXT NOT NULL DEFAULT 'Pending' CHECK(proposal_status IN ('Pending', 'Submitted', 'Approved', 'Rejected')),
+        proposal_remark TEXT,
+        remark TEXT,
+        overall_rfq_status TEXT NOT NULL DEFAULT 'Open' CHECK(overall_rfq_status IN ('Open', 'In Progress', 'Submitted', 'Completed', 'Cancelled')),
+        created_by TEXT NOT NULL DEFAULT 'Engineer',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        modified_by TEXT NOT NULL DEFAULT 'Engineer',
+        modified_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO rfqs_mig_temp (
+        id, rfq_number, sr_no, unique_rfq_no, harness_id, revision_id,
+        fg_code, fg_rev, description, no_of_ckt, volume,
+        marketing_input_date, design_input_date, work_start_date, target_date, completion_date,
+        costing_bom_prepare_date, costing_bom_submitted_date, costing_bom_status,
+        query_yes_no, query_submitted_date, reply_received_date, query_type, query_status, query_remark,
+        unique_list_share_date, unique_status, proposal_yes_no, proposal_submitted_date, proposal_status, proposal_remark,
+        remark, overall_rfq_status, created_by, created_at, modified_by, modified_at
+      )
+      SELECT 
+        id, rfq_number, sr_no, unique_rfq_no, harness_id, revision_id,
+        fg_code, fg_rev, description, no_of_ckt, volume,
+        marketing_input_date, design_input_date, work_start_date, target_date, completion_date,
+        costing_bom_prepare_date, costing_bom_submitted_date, costing_bom_status,
+        query_yes_no, query_submitted_date, reply_received_date, query_type, query_status, query_remark,
+        unique_list_share_date, unique_status, proposal_yes_no, proposal_submitted_date, proposal_status, proposal_remark,
+        remark, overall_rfq_status, created_by, created_at, modified_by, modified_at
+      FROM rfqs;
+      DROP TABLE rfqs;
+      ALTER TABLE rfqs_mig_temp RENAME TO rfqs;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
+
+  // Remove restrictive CHECK constraints on rfqs status fields if present
+  const rfqMaster = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='rfqs'").get() as any;
+  if (rfqMaster && rfqMaster.sql && rfqMaster.sql.includes("CHECK(query_status")) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE IF NOT EXISTS rfqs_mig_status (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rfq_number TEXT NOT NULL UNIQUE,
+        sr_no TEXT,
+        unique_rfq_no TEXT,
+        drawing_number TEXT,
+        model TEXT,
+        harness_id INTEGER REFERENCES harnesses(id) ON DELETE SET NULL,
+        revision_id INTEGER REFERENCES revisions(id) ON DELETE SET NULL,
+        harness_part_no TEXT,
+        customer_revision TEXT,
+        fg_code TEXT,
+        fg_rev TEXT,
+        description TEXT,
+        no_of_ckt INTEGER,
+        volume INTEGER,
+        marketing_input_date TEXT,
+        design_input_date TEXT,
+        work_start_date TEXT,
+        target_date TEXT,
+        completion_date TEXT,
+        costing_bom_prepare_date TEXT,
+        costing_bom_submitted_date TEXT,
+        costing_bom_status TEXT NOT NULL DEFAULT 'Open',
+        query_yes_no INTEGER NOT NULL DEFAULT 0,
+        query_submitted_date TEXT,
+        reply_received_date TEXT,
+        query_type TEXT,
+        query_status TEXT NOT NULL DEFAULT 'Open',
+        query_remark TEXT,
+        unique_list_share_date TEXT,
+        unique_status TEXT NOT NULL DEFAULT 'Open',
+        proposal_yes_no INTEGER NOT NULL DEFAULT 0,
+        proposal_submitted_date TEXT,
+        proposal_status TEXT NOT NULL DEFAULT 'Open',
+        proposal_remark TEXT,
+        remark TEXT,
+        overall_rfq_status TEXT NOT NULL DEFAULT 'Open',
+        created_by TEXT NOT NULL DEFAULT 'Engineer',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        modified_by TEXT NOT NULL DEFAULT 'Engineer',
+        modified_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO rfqs_mig_status (
+        id, rfq_number, sr_no, unique_rfq_no, harness_id, revision_id,
+        harness_part_no, customer_revision, fg_code, fg_rev, description,
+        no_of_ckt, volume, marketing_input_date, design_input_date, work_start_date,
+        target_date, completion_date, costing_bom_prepare_date, costing_bom_submitted_date, costing_bom_status,
+        query_yes_no, query_submitted_date, reply_received_date, query_type, query_status, query_remark,
+        unique_list_share_date, unique_status, proposal_yes_no, proposal_submitted_date, proposal_status, proposal_remark,
+        remark, overall_rfq_status, created_by, created_at, modified_by, modified_at
+      )
+      SELECT 
+        id, rfq_number, sr_no, unique_rfq_no, harness_id, revision_id,
+        harness_part_no, customer_revision, fg_code, fg_rev, description,
+        no_of_ckt, volume, marketing_input_date, design_input_date, work_start_date,
+        target_date, completion_date, costing_bom_prepare_date, costing_bom_submitted_date, costing_bom_status,
+        query_yes_no, query_submitted_date, reply_received_date, query_type, query_status, query_remark,
+        unique_list_share_date, unique_status, proposal_yes_no, proposal_submitted_date, proposal_status, proposal_remark,
+        remark, overall_rfq_status, created_by, created_at, modified_by, modified_at
+      FROM rfqs;
+      DROP TABLE rfqs;
+      ALTER TABLE rfqs_mig_status RENAME TO rfqs;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
+
+  const updatedCols = db.prepare("PRAGMA table_info(rfqs)").all() as any[];
+  const colSet = new Set(updatedCols.map((c: any) => c.name));
   const addColIfNotExists = (col: string, type: string) => {
     if (!colSet.has(col)) {
       db.exec(`ALTER TABLE rfqs ADD COLUMN ${col} ${type};`);
     }
   };
+  addColIfNotExists("drawing_number", "TEXT");
+  addColIfNotExists("model", "TEXT");
+  addColIfNotExists("harness_part_no", "TEXT");
+  addColIfNotExists("customer_revision", "TEXT");
   addColIfNotExists("fg_code", "TEXT");
   addColIfNotExists("fg_rev", "TEXT");
   addColIfNotExists("description", "TEXT");
@@ -240,8 +419,175 @@ function initSchema(db: DatabaseSync) {
   addColIfNotExists("unique_list_share_date", "TEXT");
   addColIfNotExists("unique_status", "TEXT NOT NULL DEFAULT 'Open'");
   addColIfNotExists("costing_bom_prepare_date", "TEXT");
-  addColIfNotExists("costing_bom_status", "TEXT NOT NULL DEFAULT 'Pending'");
+  addColIfNotExists("costing_bom_status", "TEXT NOT NULL DEFAULT 'Open'");
   addColIfNotExists("remark", "TEXT");
+  addColIfNotExists("sr_no", "TEXT");
+  addColIfNotExists("unique_rfq_no", "TEXT");
+  addColIfNotExists("no_of_ckt", "INTEGER");
+  addColIfNotExists("volume", "INTEGER");
+  addColIfNotExists("is_deleted", "INTEGER NOT NULL DEFAULT 0");
+  addColIfNotExists("engineer_id", "INTEGER");
+  addColIfNotExists("engineer_name", "TEXT");
+  addColIfNotExists("customer_name", "TEXT");
+  addColIfNotExists("review_note", "TEXT");
+
+  // Auto-sync overall_rfq_status for all records in the database based on milestone columns
+  try {
+    db.exec(`
+      UPDATE rfqs 
+      SET overall_rfq_status = 'Close' 
+      WHERE LOWER(TRIM(COALESCE(query_status, ''))) IN ('close', 'closed') 
+        AND LOWER(TRIM(COALESCE(unique_status, ''))) IN ('close', 'closed') 
+        AND LOWER(TRIM(COALESCE(costing_bom_status, ''))) IN ('close', 'closed')
+        AND overall_rfq_status != 'Close';
+
+      UPDATE rfqs 
+      SET overall_rfq_status = 'Open' 
+      WHERE (LOWER(TRIM(COALESCE(query_status, ''))) NOT IN ('close', 'closed') 
+          OR LOWER(TRIM(COALESCE(unique_status, ''))) NOT IN ('close', 'closed') 
+          OR LOWER(TRIM(COALESCE(costing_bom_status, ''))) NOT IN ('close', 'closed'))
+        AND overall_rfq_status IN ('Close', 'Submitted', 'In Progress');
+    `);
+  } catch (err) {
+    console.warn("Notice: could not auto-sync rfq statuses:", err);
+  }
+
+  // Safe dynamic migration for existing ecns table if it has restrictive NOT NULL / CHECK constraints
+  const ecnCols = db.prepare("PRAGMA table_info(ecns)").all() as any[];
+  const ecnHarnessCol = ecnCols.find((c: any) => c.name === "harness_id");
+  const ecnChangeReasonCol = ecnCols.find((c: any) => c.name === "change_reason");
+  const ecnMaster = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='ecns'").get() as any;
+  const hasStrictEcnConstraints = (ecnHarnessCol && ecnHarnessCol.notnull === 1) || 
+    (ecnChangeReasonCol && ecnChangeReasonCol.notnull === 1) || 
+    (ecnMaster && ecnMaster.sql && (ecnMaster.sql.includes("CHECK(stage_context") || ecnMaster.sql.includes("CHECK(ecn_status")));
+
+  if (hasStrictEcnConstraints) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE IF NOT EXISTS ecns_mig_temp (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ecn_number TEXT NOT NULL UNIQUE,
+        rfq_no TEXT,
+        stage TEXT NOT NULL DEFAULT 'sample',
+        customer_name TEXT,
+        model_name TEXT,
+        query_status TEXT NOT NULL DEFAULT 'Open',
+        unique_list_share_date TEXT,
+        unique_rfq_no TEXT,
+        unique_status TEXT NOT NULL DEFAULT 'Open',
+        sap_bom_upload_date TEXT,
+        sap_bom_released_date TEXT,
+        prd_bom_release_date TEXT,
+        label_upload_date TEXT,
+        min_by_engineer_date TEXT,
+        min_by_ppc TEXT,
+        min_status TEXT NOT NULL DEFAULT 'Open',
+        review TEXT,
+        overall_status TEXT NOT NULL DEFAULT 'Open',
+        no_of_ckt INTEGER,
+        volume INTEGER,
+        work_start_date TEXT,
+        target_date TEXT,
+        completion_date TEXT,
+        harness_id INTEGER REFERENCES harnesses(id) ON DELETE SET NULL,
+        source_revision_id INTEGER REFERENCES revisions(id) ON DELETE SET NULL,
+        stage_context TEXT DEFAULT 'Sample',
+        development_type TEXT DEFAULT 'New Development',
+        change_reason TEXT DEFAULT '',
+        revision_impact TEXT DEFAULT 'Same Revision',
+        new_revision_id INTEGER REFERENCES revisions(id) ON DELETE SET NULL,
+        costing_required INTEGER NOT NULL DEFAULT 0,
+        rfq_id INTEGER REFERENCES rfqs(id) ON DELETE SET NULL,
+        primary_engineer_id INTEGER REFERENCES engineers(id) ON DELETE SET NULL,
+        support_engineer_id INTEGER REFERENCES engineers(id) ON DELETE SET NULL,
+        design_input_date TEXT,
+        min_meeting_date TEXT,
+        ecn_status TEXT NOT NULL DEFAULT 'Open',
+        delay_reason TEXT,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL DEFAULT 'Engineer',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        modified_by TEXT NOT NULL DEFAULT 'Engineer',
+        modified_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO ecns_mig_temp (
+        id, ecn_number, harness_id, source_revision_id, stage_context, development_type,
+        change_reason, revision_impact, new_revision_id, costing_required, rfq_id,
+        primary_engineer_id, support_engineer_id, design_input_date, work_start_date,
+        target_date, min_meeting_date, completion_date, ecn_status, delay_reason,
+        created_by, created_at, modified_by, modified_at
+      )
+      SELECT 
+        id, ecn_number, harness_id, source_revision_id, stage_context, development_type,
+        change_reason, revision_impact, new_revision_id, costing_required, rfq_id,
+        primary_engineer_id, support_engineer_id, design_input_date, work_start_date,
+        target_date, min_meeting_date, completion_date, ecn_status, delay_reason,
+        created_by, created_at, modified_by, modified_at
+      FROM ecns;
+      DROP TABLE ecns;
+      ALTER TABLE ecns_mig_temp RENAME TO ecns;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
+
+  // Ensure all columns exist on ecns
+  const updatedEcnCols = db.prepare("PRAGMA table_info(ecns)").all() as any[];
+  const ecnColSet = new Set(updatedEcnCols.map((c: any) => c.name));
+  const addEcnCol = (col: string, type: string) => {
+    if (!ecnColSet.has(col)) {
+      db.exec(`ALTER TABLE ecns ADD COLUMN ${col} ${type};`);
+    }
+  };
+  addEcnCol("rfq_no", "TEXT");
+  addEcnCol("stage", "TEXT NOT NULL DEFAULT 'sample'");
+  addEcnCol("customer_name", "TEXT");
+  addEcnCol("model_name", "TEXT");
+  addEcnCol("query_status", "TEXT NOT NULL DEFAULT 'Open'");
+  addEcnCol("unique_list_share_date", "TEXT");
+  addEcnCol("unique_rfq_no", "TEXT");
+  addEcnCol("unique_status", "TEXT NOT NULL DEFAULT 'Open'");
+  addEcnCol("sap_bom_upload_date", "TEXT");
+  addEcnCol("sap_bom_released_date", "TEXT");
+  addEcnCol("prd_bom_release_date", "TEXT");
+  addEcnCol("label_upload_date", "TEXT");
+  addEcnCol("min_by_engineer_date", "TEXT");
+  addEcnCol("min_by_ppc", "TEXT");
+  addEcnCol("min_status", "TEXT NOT NULL DEFAULT 'Open'");
+  addEcnCol("review", "TEXT");
+  addEcnCol("overall_status", "TEXT NOT NULL DEFAULT 'Open'");
+  addEcnCol("no_of_ckt", "INTEGER");
+  addEcnCol("volume", "INTEGER");
+  addEcnCol("is_deleted", "INTEGER NOT NULL DEFAULT 0");
+
+  // Sync existing customer_name, model_name, and rfq_no for existing ECNs
+  try {
+    db.exec(`
+      UPDATE ecns
+      SET customer_name = (
+        SELECT c.name FROM harnesses h 
+        JOIN projects p ON h.project_id = p.id 
+        JOIN customers c ON p.customer_id = c.id 
+        WHERE h.id = ecns.harness_id
+      )
+      WHERE (customer_name IS NULL OR customer_name = '') AND harness_id IS NOT NULL;
+
+      UPDATE ecns
+      SET model_name = (
+        SELECT p.model_name FROM harnesses h 
+        JOIN projects p ON h.project_id = p.id 
+        WHERE h.id = ecns.harness_id
+      )
+      WHERE (model_name IS NULL OR model_name = '') AND harness_id IS NOT NULL;
+
+      UPDATE ecns
+      SET rfq_no = (
+        SELECT COALESCE(r.sr_no, r.rfq_number) FROM rfqs r WHERE r.id = ecns.rfq_id
+      )
+      WHERE (rfq_no IS NULL OR rfq_no = '') AND rfq_id IS NOT NULL;
+    `);
+  } catch (err) {
+    console.warn("Notice: could not auto-sync ecn metadata:", err);
+  }
 }
 
 function seedInitialData(db: DatabaseSync) {

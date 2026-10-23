@@ -17,7 +17,9 @@ import {
   X,
   ExternalLink,
   ChevronRight,
-  Database
+  Database,
+  Calendar,
+  Trash2
 } from "lucide-react";
 
 export default function App() {
@@ -49,6 +51,7 @@ export default function App() {
   const [modalType, setModalType] = useState<string | null>(null);
   const [modalData, setModalData] = useState<any>({});
   const [modalError, setModalError] = useState<string | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: number; targetNum: string; type: "rfq" | "ecn" } | null>(null);
 
   // Auto-dismiss alerts
   useEffect(() => {
@@ -110,6 +113,20 @@ export default function App() {
     refreshAll();
   }, [selectedProjectId, selectedEngineerId]);
 
+  // Ensure clicking anywhere on any date input box triggers the calendar picker
+  useEffect(() => {
+    const handleGlobalDateClick = (e: MouseEvent) => {
+      const el = e.target as HTMLInputElement;
+      if (el && el.tagName === "INPUT" && el.type === "date") {
+        try {
+          (el as any).showPicker?.();
+        } catch { }
+      }
+    };
+    document.addEventListener("click", handleGlobalDateClick);
+    return () => document.removeEventListener("click", handleGlobalDateClick);
+  }, []);
+
   // Export handler
   const handleExport = (type: string, format: "xlsx" | "csv" = "xlsx") => {
     let url = `/api/export?type=${type}&format=${format}`;
@@ -121,6 +138,201 @@ export default function App() {
       url += `&project_id=${selectedProjectId}`;
     }
     window.open(url, "_blank");
+  };
+
+  // RFQ Status Dropdown Options
+  const RFQ_STATUS_OPTIONS = [
+    "Open",
+    "Close",
+    "need to review",
+    "Pending>close",
+    "Hold>close"
+  ];
+
+  // RFQ Overall Status Dropdown Options (without 'need to review')
+  const OVERALL_STATUS_OPTIONS = [
+    "Open",
+    "Close",
+    "Pending>close",
+    "Hold>close"
+  ];
+
+  // RFQ Costing BOM Status Dropdown Options (without 'need to review')
+  const COSTING_BOM_STATUS_OPTIONS = [
+    "Open",
+    "Close",
+    "Pending>close",
+    "Hold>close"
+  ];
+
+  // RFQ Query Type Dropdown Options
+  const QUERY_TYPE_OPTIONS = [
+    "proposal",
+    "query",
+    "query>proposal"
+  ];
+
+  // ECN Stage Dropdown Options (Exact sequence from user requirements)
+  const ECN_STAGE_OPTIONS = [
+    "sample",
+    "new dev",
+    "modification",
+    "design vave",
+    "design error",
+    "prd feedback"
+  ];
+
+  // ECN MIN Status Dropdown Options
+  const ECN_MIN_STATUS_OPTIONS = [
+    "Open",
+    "Close",
+    "Pending",
+    "Hold"
+  ];
+
+  // ECN Overall Status Dropdown Options
+  const ECN_OVERALL_STATUS_OPTIONS = [
+    "Open",
+    "Close",
+    "In Progress",
+    "Pending>close",
+    "Hold>close"
+  ];
+
+  // Inline update helper for fast table editing
+  const handleInlineUpdate = async (id: number, patchData: any) => {
+    try {
+      const res = await fetch("/api/rfqs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...patchData })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Update failed");
+      }
+      setSuccessBanner("Updated successfully!");
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to save: " + err.message);
+    }
+  };
+
+  // Inline update helper for fast ECN table editing
+  const handleInlineEcnUpdate = async (id: number, patchData: any) => {
+    try {
+      const res = await fetch("/api/ecns", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...patchData })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Update failed");
+      }
+      setSuccessBanner("ECN updated successfully!");
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to save ECN: " + err.message);
+    }
+  };
+
+  // Delete RFQ execution (triggered from custom popup confirmation)
+  const executeDeleteRfq = async (id: number, rfqNum: string) => {
+    try {
+      const res = await fetch(`/api/rfqs?id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to delete");
+      setSuccessBanner(`RFQ ${rfqNum} deleted.`);
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to delete RFQ: " + err.message);
+    }
+  };
+
+  // Delete ECN execution (triggered from custom popup confirmation)
+  const executeDeleteEcn = async (id: number, ecnNum: string) => {
+    try {
+      const res = await fetch(`/api/ecns?id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to delete");
+      setSuccessBanner(`ECN ${ecnNum} deleted.`);
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to delete ECN: " + err.message);
+    }
+  };
+
+  // Open New RFQ with next generated number and empty fields
+  const handleOpenNewRfq = async () => {
+    let nextNum = "RFQ618260001";
+    try {
+      const res = await fetch("/api/rfqs?action=next_number");
+      const json = await res.json();
+      if (json.next_rfq_number) {
+        nextNum = json.next_rfq_number;
+      }
+    } catch (err) {
+      console.error("Failed to fetch next RFQ number:", err);
+    }
+    setModalData({
+      rfq_number: nextNum,
+      customer_name: "",
+      create_ecn: false,
+      sr_no: nextNum,
+      unique_rfq_no: nextNum,
+      drawing_number: "",
+      model: "",
+      engineer_id: "",
+      engineer_name: "",
+      harness_part_no: "",
+      customer_revision: "",
+      fg_code: "",
+      fg_rev: "",
+      description: "",
+      no_of_ckt: "",
+      volume: "",
+      query_yes_no: false,
+      query_status: "Open",
+      unique_status: "Open",
+      costing_bom_status: "Open",
+      remark: "",
+      review_note: "",
+      overall_rfq_status: "Open",
+      marketing_input_date: new Date().toISOString().split("T")[0]
+    });
+    setModalError(null);
+    setModalType("new_rfq");
+  };
+
+  // Open New ECN with default fields
+  const handleOpenNewEcn = () => {
+    setModalData({
+      rfq_no: "",
+      stage: "sample",
+      customer_name: "",
+      model_name: "",
+      query_status: "Open",
+      unique_list_share_date: "",
+      unique_rfq_no: "",
+      unique_status: "Open",
+      sap_bom_upload_date: "",
+      sap_bom_released_date: "",
+      prd_bom_release_date: "",
+      label_upload_date: "",
+      min_by_engineer_date: "",
+      min_by_ppc: "",
+      min_status: "Open",
+      review: "",
+      overall_status: "Open",
+      no_of_ckt: "",
+      volume: "",
+      work_start_date: "",
+      target_date: "",
+      completion_date: ""
+    });
+    setModalError(null);
+    setModalType("new_ecn");
   };
 
   // Submit modal form
@@ -499,7 +711,7 @@ export default function App() {
                 <button className="btn btn-outline" onClick={() => handleExport("rfq", "xlsx")}>
                   <Download size={15} /> Export Excel
                 </button>
-                <button className="btn" onClick={() => { setModalType("new_rfq"); setModalData({}); }}>
+                <button className="btn" onClick={handleOpenNewRfq}>
                   <Plus size={16} /> New RFQ
                 </button>
               </div>
@@ -510,7 +722,10 @@ export default function App() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Sr .No (unique RFQ No.)</th>
+                      <th className="sticky-col">Sr .No (unique RFQ No.)</th>
+                      <th>Customer Name</th>
+                      <th>Model</th>
+                      <th>Drawing Number</th>
                       <th>harness part no.</th>
                       <th>customer revision</th>
                       <th>fg code</th>
@@ -530,80 +745,531 @@ export default function App() {
                       <th>Costing BOM Status</th>
                       <th>Remark</th>
                       <th>Over all status</th>
+                      <th>Name</th>
                       <th>No. of ckt</th>
                       <th>Volume</th>
                       <th>Start date</th>
                       <th>Target Date</th>
                       <th>Actual Date</th>
+                      <th>Review Note</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rfqs.map((r, idx) => (
-                      <tr key={r.id}>
-                        <td style={{ fontWeight: 600, color: "#38bdf8" }}>{r.rfq_number || idx + 1}</td>
-                        <td style={{ fontWeight: 600 }}>{r.harness_number || "-"}</td>
-                        <td>{r.revision_code || "-"}</td>
-                        <td>{r.fg_code || "-"}</td>
-                        <td>{r.fg_rev || "-"}</td>
-                        <td style={{ maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.description || (r.customer_name ? `${r.customer_name} - ${r.model_name}` : "")}>
-                          {r.description || (r.customer_name ? `${r.customer_name} - ${r.model_name}` : "-")}
+                      <tr key={r.id} className={r.is_deleted ? "table-row-deleted" : ""}>
+                        <td className="sticky-col" style={{ fontWeight: 600, color: r.is_deleted ? "#fca5a5" : "#38bdf8", whiteSpace: "nowrap" }}>
+                          {r.sr_no || r.rfq_number || idx + 1}
+                          {r.is_deleted ? <span className="deleted-badge">DELETED</span> : null}
                         </td>
-                        <td>{r.marketing_input_date || "-"}</td>
-                        <td>{r.design_input_date || "-"}</td>
-                        <td>{r.query_submitted_date || r.query_sent_date || "-"}</td>
-                        <td>{r.reply_received_date || r.query_resolve_date || "-"}</td>
-                        <td>{r.query_type || "-"}</td>
+                        <td style={{ minWidth: "160px", padding: "4px" }}>
+                          <select
+                            className="table-inline-select"
+                            value={r.customer_name || ""}
+                            key={`cust-${r.id}-${r.customer_name || ""}`}
+                            onChange={async (e) => {
+                              const val = e.target.value;
+                              if (val !== (r.customer_name || "")) {
+                                await handleInlineUpdate(r.id, { customer_name: val });
+                              }
+                            }}
+                          >
+                            <option value="">Select Customer...</option>
+                            {customers.map((c) => (
+                              <option key={c.id} value={c.name}>{c.name}</option>
+                            ))}
+                            {r.customer_name && !customers.some((c) => c.name === r.customer_name) && (
+                              <option value={r.customer_name}>{r.customer_name}</option>
+                            )}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Add Model..."
+                            defaultValue={r.model || r.model_name || ""}
+                            key={`mdl-${r.id}-${r.model || r.model_name || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.model || r.model_name || "")) {
+                                await handleInlineUpdate(r.id, { model: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Add Drawing No..."
+                            defaultValue={r.drawing_number || ""}
+                            key={`dwg-${r.id}-${r.drawing_number || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.drawing_number || "")) {
+                                await handleInlineUpdate(r.id, { drawing_number: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "160px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Harness Part No..."
+                            defaultValue={r.harness_part_no || r.harness_number || ""}
+                            key={`hpn-${r.id}-${r.harness_part_no || r.harness_number || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.harness_part_no || r.harness_number || "")) {
+                                await handleInlineUpdate(r.id, { harness_part_no: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "110px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Cust Rev..."
+                            defaultValue={r.customer_revision || r.revision_code || ""}
+                            key={`crev-${r.id}-${r.customer_revision || r.revision_code || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.customer_revision || r.revision_code || "")) {
+                                await handleInlineUpdate(r.id, { customer_revision: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "130px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="FG Code..."
+                            defaultValue={r.fg_code || ""}
+                            key={`fgc-${r.id}-${r.fg_code || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.fg_code || "")) {
+                                await handleInlineUpdate(r.id, { fg_code: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "100px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="FG Rev..."
+                            defaultValue={r.fg_rev || ""}
+                            key={`fgr-${r.id}-${r.fg_rev || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.fg_rev || "")) {
+                                await handleInlineUpdate(r.id, { fg_rev: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "220px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Add/update description..."
+                            defaultValue={r.description || ""}
+                            key={`${r.id}-${r.description || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            onBlur={async (e) => {
+                              const newDesc = e.target.value.trim();
+                              if (newDesc !== (r.description || "")) {
+                                await handleInlineUpdate(r.id, { description: newDesc });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.marketing_input_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { marketing_input_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.design_input_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { design_input_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.query_submitted_date || r.query_sent_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { query_submitted_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.reply_received_date || r.query_resolve_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { reply_received_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <select
+                            className="table-status-select"
+                            value={r.query_type || ""}
+                            onChange={(e) => handleInlineUpdate(r.id, { query_type: e.target.value })}
+                          >
+                            <option value="">-</option>
+                            {QUERY_TYPE_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
                         <td>
-                          {r.query_yes_no || r.query_status ? (
-                            <span className={`badge ${r.query_status === "Resolved" ? "badge-resolved" : "badge-delayed"}`}>
-                              {r.query_status || "Open"}
+                          <select
+                            className="table-status-select"
+                            value={r.query_status || "Open"}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const isAll = (val.toLowerCase() === "close" || val.toLowerCase() === "closed") &&
+                                (r.unique_status?.toLowerCase() === "close" || r.unique_status?.toLowerCase() === "closed") &&
+                                (r.costing_bom_status?.toLowerCase() === "close" || r.costing_bom_status?.toLowerCase() === "closed");
+                              handleInlineUpdate(r.id, {
+                                query_status: val,
+                                query_yes_no: val !== "Close",
+                                overall_rfq_status: isAll ? "Close" : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open"))
+                              });
+                            }}
+                          >
+                            {RFQ_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.unique_list_share_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { unique_list_share_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Unique RFQ No..."
+                            defaultValue={r.unique_rfq_no || r.rfq_number || ""}
+                            key={`unq-${r.id}-${r.unique_rfq_no || r.rfq_number || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.unique_rfq_no || r.rfq_number || "")) {
+                                await handleInlineUpdate(r.id, { unique_rfq_no: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            className="table-status-select"
+                            value={r.unique_status || "Open"}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const isAll = (r.query_status?.toLowerCase() === "close" || r.query_status?.toLowerCase() === "closed") &&
+                                (val.toLowerCase() === "close" || val.toLowerCase() === "closed") &&
+                                (r.costing_bom_status?.toLowerCase() === "close" || r.costing_bom_status?.toLowerCase() === "closed");
+                              handleInlineUpdate(r.id, {
+                                unique_status: val,
+                                overall_rfq_status: isAll ? "Close" : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open"))
+                              });
+                            }}
+                          >
+                            {RFQ_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.costing_bom_prepare_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { costing_bom_prepare_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.costing_bom_submitted_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { costing_bom_submitted_date: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            className="table-status-select"
+                            value={r.costing_bom_status || "Open"}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const isAll = (r.query_status?.toLowerCase() === "close" || r.query_status?.toLowerCase() === "closed") &&
+                                (r.unique_status?.toLowerCase() === "close" || r.unique_status?.toLowerCase() === "closed") &&
+                                (val.toLowerCase() === "close" || val.toLowerCase() === "closed");
+                              handleInlineUpdate(r.id, {
+                                costing_bom_status: val,
+                                overall_rfq_status: isAll ? "Close" : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open"))
+                              });
+                            }}
+                          >
+                            {COSTING_BOM_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "180px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Add remark..."
+                            defaultValue={r.remark || r.query_remark || ""}
+                            key={`rem-${r.id}-${r.remark || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.remark || "")) {
+                                await handleInlineUpdate(r.id, { remark: val, query_remark: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            className="table-status-select"
+                            value={
+                              ((r.query_status?.toLowerCase() === "close" || r.query_status?.toLowerCase() === "closed") &&
+                               (r.unique_status?.toLowerCase() === "close" || r.unique_status?.toLowerCase() === "closed") &&
+                               (r.costing_bom_status?.toLowerCase() === "close" || r.costing_bom_status?.toLowerCase() === "closed"))
+                                ? "Close"
+                                : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open"))
+                            }
+                            onChange={(e) => handleInlineUpdate(r.id, { overall_rfq_status: e.target.value })}
+                          >
+                            {OVERALL_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <select
+                            className="table-status-select"
+                            value={r.engineer_id || ""}
+                            onChange={async (e) => {
+                              const engId = e.target.value ? Number(e.target.value) : null;
+                              const eng = engineers.find((item) => item.id === engId);
+                              await handleInlineUpdate(r.id, {
+                                engineer_id: engId,
+                                engineer_name: eng ? eng.name : ""
+                              });
+                            }}
+                          >
+                            <option value="">Select Name...</option>
+                            {engineers.filter(e => e.is_active || e.id === r.engineer_id).map((e) => (
+                              <option key={e.id} value={e.id}>{e.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "90px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="table-inline-input"
+                            placeholder="Ckt..."
+                            defaultValue={r.no_of_ckt !== undefined && r.no_of_ckt !== null && r.no_of_ckt !== "" ? r.no_of_ckt : (r.circuit_count ?? "")}
+                            key={`ckt-${r.id}-${r.no_of_ckt ?? r.circuit_count ?? ""}`}
+                            onKeyDown={(e) => {
+                              if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                                e.preventDefault();
+                              }
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.replace(/[^0-9]/g, "");
+                              const oldVal = String(r.no_of_ckt ?? r.circuit_count ?? "");
+                              if (val !== oldVal) {
+                                await handleInlineUpdate(r.id, { no_of_ckt: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "110px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="table-inline-input"
+                            placeholder="Volume..."
+                            defaultValue={r.volume !== undefined && r.volume !== null && r.volume !== "" ? r.volume : ""}
+                            key={`vol-${r.id}-${r.volume ?? ""}`}
+                            onKeyDown={(e) => {
+                              if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                                e.preventDefault();
+                              }
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.replace(/[^0-9]/g, "");
+                              const oldVal = String(r.volume ?? "");
+                              if (val !== oldVal) {
+                                await handleInlineUpdate(r.id, { volume: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.work_start_date || r.start_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { work_start_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.target_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { target_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "135px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-date-input"
+                            value={r.completion_date || r.actual_date || ""}
+                            onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={(e) => handleInlineUpdate(r.id, { completion_date: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ minWidth: "160px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Add review note..."
+                            defaultValue={r.review_note || ""}
+                            key={`revnote-${r.id}-${r.review_note || ""}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (r.review_note || "")) {
+                                await handleInlineUpdate(r.id, { review_note: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          {r.is_deleted ? (
+                            <span className="badge badge-danger" style={{ padding: "4px 10px", fontSize: "11px", fontWeight: 700 }}>
+                              Deleted
                             </span>
                           ) : (
-                            <span style={{ color: "#64748b" }}>No Query</span>
+                            <div style={{ display: "flex", gap: "6px" }}>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: "4px 8px", fontSize: "11px" }}
+                                onClick={() => {
+                                  const isAll = (r.query_status?.toLowerCase() === "close" || r.query_status?.toLowerCase() === "closed") &&
+                                    (r.unique_status?.toLowerCase() === "close" || r.unique_status?.toLowerCase() === "closed") &&
+                                    (r.costing_bom_status?.toLowerCase() === "close" || r.costing_bom_status?.toLowerCase() === "closed");
+                                  setModalType("edit_rfq");
+                                  setModalData({
+                                    ...r,
+                                    overall_rfq_status: isAll ? "Close" : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open")),
+                                    customer_name: r.customer_name || "",
+                                    sr_no: r.sr_no || r.rfq_number || "",
+                                    unique_rfq_no: r.unique_rfq_no || r.rfq_number || "",
+                                    drawing_number: r.drawing_number || "",
+                                    model: r.model || r.model_name || "",
+                                    harness_part_no: r.harness_part_no || r.harness_number || "",
+                                    customer_revision: r.customer_revision || r.revision_code || "",
+                                    fg_code: r.fg_code || "",
+                                    fg_rev: r.fg_rev || "",
+                                    description: r.description || "",
+                                    engineer_id: r.engineer_id || "",
+                                    engineer_name: r.engineer_name || "",
+                                    no_of_ckt: r.no_of_ckt !== undefined && r.no_of_ckt !== null ? String(r.no_of_ckt) : (r.circuit_count ? String(r.circuit_count) : ""),
+                                    volume: r.volume !== undefined && r.volume !== null ? String(r.volume) : "",
+                                    review_note: r.review_note || "",
+                                  });
+                                }}
+                              >
+                                Update
+                              </button>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: "4px 8px", fontSize: "11px", color: "#f87171", borderColor: "rgba(239, 68, 68, 0.4)" }}
+                                title="Delete RFQ"
+                                onClick={() => setDeleteConfirmTarget({ id: r.id, targetNum: r.sr_no || r.rfq_number, type: "rfq" })}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           )}
-                        </td>
-                        <td>{r.unique_list_share_date || "-"}</td>
-                        <td style={{ fontWeight: 600, color: "#38bdf8" }}>{r.rfq_number || "-"}</td>
-                        <td>
-                          <span className={`badge ${r.unique_status === "Completed" || r.unique_status === "Approved" ? "badge-completed" : "badge-open"}`}>
-                            {r.unique_status || r.overall_rfq_status || "Open"}
-                          </span>
-                        </td>
-                        <td>{r.costing_bom_prepare_date || "-"}</td>
-                        <td>
-                          {r.costing_bom_submitted_date ? (
-                            <span style={{ color: "#34d399" }}>{r.costing_bom_submitted_date}</span>
-                          ) : (
-                            <span style={{ color: "#f59e0b" }}>Pending</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className={`badge ${r.costing_bom_status === "Approved" || r.costing_bom_status === "Submitted" || r.costing_bom_submitted_date ? "badge-completed" : "badge-in-progress"}`}>
-                            {r.costing_bom_status || (r.costing_bom_submitted_date ? "Submitted" : "Pending")}
-                          </span>
-                        </td>
-                        <td style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.remark || r.query_remark || ""}>
-                          {r.remark || r.query_remark || "-"}
-                        </td>
-                        <td>
-                          <span className={`badge ${r.overall_rfq_status === "Completed" ? "badge-completed" : "badge-open"}`}>
-                            {r.overall_rfq_status || "Open"}
-                          </span>
-                        </td>
-                        <td>{r.circuit_count !== undefined && r.circuit_count !== null ? r.circuit_count : (r.no_of_ckt || "-")}</td>
-                        <td>{r.volume !== undefined && r.volume !== null ? Number(r.volume).toLocaleString() : "-"}</td>
-                        <td>{r.work_start_date || r.start_date || "-"}</td>
-                        <td>{r.target_date || "-"}</td>
-                        <td>{r.completion_date || r.actual_date || "-"}</td>
-                        <td>
-                          <button
-                            className="btn btn-outline"
-                            style={{ padding: "4px 8px", fontSize: "11px" }}
-                            onClick={() => { setModalType("edit_rfq"); setModalData(r); }}
-                          >
-                            Update
-                          </button>
                         </td>
                       </tr>
                     ))}
@@ -626,7 +1292,7 @@ export default function App() {
                 <button className="btn btn-outline" onClick={() => handleExport("ecn", "xlsx")}>
                   <Download size={15} /> Export Excel
                 </button>
-                <button className="btn" onClick={() => { setModalType("new_ecn"); setModalData({}); }}>
+                <button className="btn" onClick={handleOpenNewEcn}>
                   <Plus size={16} /> New ECN
                 </button>
               </div>
@@ -637,74 +1303,444 @@ export default function App() {
                 <table>
                   <thead>
                     <tr>
-                      <th>ECN Number</th>
-                      <th>Harness</th>
-                      <th>Stage / Dev</th>
-                      <th>Primary Engineer</th>
+                      <th className="sticky-col">ecn no.</th>
+                      <th>rfq no.</th>
+                      <th>stage</th>
+                      <th>customer name</th>
+                      <th>model name</th>
+                      <th>Query status</th>
+                      <th>Unique list share date</th>
+                      <th>Unique RFQ No.</th>
+                      <th>Unique status</th>
+                      <th>sap bom upload date</th>
+                      <th>sap bom released date</th>
+                      <th>prd bom release date</th>
+                      <th>label upload date</th>
+                      <th>min by engineer date</th>
+                      <th>min by ppc</th>
+                      <th>min status</th>
+                      <th>review</th>
+                      <th>Over all status</th>
+                      <th>No. of ckt</th>
+                      <th>Volume</th>
+                      <th>Start date</th>
                       <th>Target Date</th>
-                      <th>MIN / Completion</th>
-                      <th>Planned / Actual (Days)</th>
-                      <th>Delay</th>
-                      <th>Status</th>
+                      <th>Actual Date</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {ecns.map(e => (
-                      <tr key={e.id}>
-                        <td style={{ fontWeight: 600, color: "#38bdf8" }}>{e.ecn_number}</td>
-                        <td>
-                          <div><b>{e.harness_number}</b></div>
-                          <div style={{ fontSize: "11px", color: "#64748b" }}>{e.customer_name} · {e.model_name}</div>
+                    {ecns.map((e, idx) => (
+                      <tr key={e.id} className={e.is_deleted ? "table-row-deleted" : ""}>
+                        <td className="sticky-col" style={{ fontWeight: 600, color: e.is_deleted ? "#fca5a5" : "#38bdf8", whiteSpace: "nowrap" }}>
+                          {e.ecn_number || idx + 1}
+                          {e.is_deleted ? <span className="deleted-badge">DELETED</span> : null}
                         </td>
-                        <td>
-                          <span className="badge badge-in-progress">{e.stage_context}</span>{" "}
-                          <span className="badge badge-open">{e.development_type}</span>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="RFQ No..."
+                            defaultValue={e.rfq_no || ""}
+                            key={`ecn-rfq-${e.id}-${e.rfq_no || ""}`}
+                            onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.rfq_no || "")) {
+                                await handleInlineEcnUpdate(e.id, { rfq_no: val });
+                              }
+                            }}
+                          />
                         </td>
-                        <td>{e.primary_engineer_name}</td>
-                        <td>{e.target_date}</td>
-                        <td>
-                          {e.min_meeting_date ? (
-                            <span style={{ color: "#34d399" }}>{e.min_meeting_date}</span>
-                          ) : (
-                            <span style={{ color: "#f59e0b" }}>Pending MIN</span>
-                          )}
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <select
+                            className="table-inline-select"
+                            value={e.stage || "sample"}
+                            key={`ecn-stg-${e.id}-${e.stage || ""}`}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.stage || "")) {
+                                await handleInlineEcnUpdate(e.id, { stage: val });
+                              }
+                            }}
+                          >
+                            {ECN_STAGE_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
                         </td>
-                        <td>
-                          {e.planned_duration !== null ? `${e.planned_duration}d` : "-"} /{" "}
-                          {e.actual_duration !== null ? `${e.actual_duration}d` : "-"}
-                        </td>
-                        <td>
-                          {e.delay_days > 0 ? (
-                            <span className="badge badge-delayed">+{e.delay_days}d</span>
-                          ) : (
-                            <span style={{ color: "#34d399" }}>0d</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className={`badge ${e.ecn_status === "Completed" ? "badge-completed" : "badge-open"}`}>
-                            {e.ecn_status}
-                          </span>
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", gap: "4px" }}>
-                            <button
-                              className="btn btn-outline"
-                              style={{ padding: "4px 8px", fontSize: "11px" }}
-                              onClick={() => { setModalType("edit_ecn"); setModalData(e); }}
-                            >
-                              Edit
-                            </button>
-                            {!e.min_meeting_date && (
-                              <button
-                                className="btn btn-success"
-                                style={{ padding: "4px 8px", fontSize: "11px" }}
-                                onClick={() => { setModalType("record_min"); setModalData({ ecn_id: e.id, ecn_number: e.ecn_number }); }}
-                              >
-                                MIN
-                              </button>
+                        <td style={{ minWidth: "160px", padding: "4px" }}>
+                          <select
+                            className="table-inline-select"
+                            value={e.customer_name || ""}
+                            key={`ecn-cust-${e.id}-${e.customer_name || ""}`}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.customer_name || "")) {
+                                await handleInlineEcnUpdate(e.id, { customer_name: val });
+                              }
+                            }}
+                          >
+                            <option value="">Select Customer...</option>
+                            {customers.map((c) => (
+                              <option key={c.id} value={c.name}>{c.name}</option>
+                            ))}
+                            {e.customer_name && !customers.some((c) => c.name === e.customer_name) && (
+                              <option value={e.customer_name}>{e.customer_name}</option>
                             )}
-                          </div>
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Model..."
+                            defaultValue={e.model_name || ""}
+                            key={`ecn-mdl-${e.id}-${e.model_name || ""}`}
+                            onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.model_name || "")) {
+                                await handleInlineEcnUpdate(e.id, { model_name: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <select
+                            className="table-inline-select"
+                            value={e.query_status || "Open"}
+                            key={`ecn-qs-${e.id}-${e.query_status || ""}`}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.query_status || "")) {
+                                await handleInlineEcnUpdate(e.id, { query_status: val });
+                              }
+                            }}
+                          >
+                            {RFQ_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.unique_list_share_date || ""}
+                            key={`ecn-ulsd-${e.id}-${e.unique_list_share_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.unique_list_share_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { unique_list_share_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Unique RFQ No..."
+                            defaultValue={e.unique_rfq_no || ""}
+                            key={`ecn-urfq-${e.id}-${e.unique_rfq_no || ""}`}
+                            onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.unique_rfq_no || "")) {
+                                await handleInlineEcnUpdate(e.id, { unique_rfq_no: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <select
+                            className="table-inline-select"
+                            value={e.unique_status || "Open"}
+                            key={`ecn-us-${e.id}-${e.unique_status || ""}`}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.unique_status || "")) {
+                                await handleInlineEcnUpdate(e.id, { unique_status: val });
+                              }
+                            }}
+                          >
+                            {RFQ_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.sap_bom_upload_date || ""}
+                            key={`ecn-sbup-${e.id}-${e.sap_bom_upload_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.sap_bom_upload_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { sap_bom_upload_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.sap_bom_released_date || ""}
+                            key={`ecn-sbrl-${e.id}-${e.sap_bom_released_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.sap_bom_released_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { sap_bom_released_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.prd_bom_release_date || ""}
+                            key={`ecn-pdbrl-${e.id}-${e.prd_bom_release_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.prd_bom_release_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { prd_bom_release_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.label_upload_date || ""}
+                            key={`ecn-lbup-${e.id}-${e.label_upload_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.label_upload_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { label_upload_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.min_by_engineer_date || ""}
+                            key={`ecn-mbe-${e.id}-${e.min_by_engineer_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.min_by_engineer_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { min_by_engineer_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.min_by_ppc || ""}
+                            key={`ecn-mbp-${e.id}-${e.min_by_ppc || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.min_by_ppc || "")) {
+                                await handleInlineEcnUpdate(e.id, { min_by_ppc: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "120px", padding: "4px" }}>
+                          <select
+                            className="table-inline-select"
+                            value={e.min_status || "Open"}
+                            key={`ecn-ms-${e.id}-${e.min_status || ""}`}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.min_status || "")) {
+                                await handleInlineEcnUpdate(e.id, { min_status: val });
+                              }
+                            }}
+                          >
+                            {ECN_MIN_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "160px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Review..."
+                            defaultValue={e.review || ""}
+                            key={`ecn-rev-${e.id}-${e.review || ""}`}
+                            onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.review || "")) {
+                                await handleInlineEcnUpdate(e.id, { review: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <select
+                            className="table-inline-select"
+                            value={e.overall_status || "Open"}
+                            key={`ecn-ovs-${e.id}-${e.overall_status || ""}`}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.overall_status || "")) {
+                                await handleInlineEcnUpdate(e.id, { overall_status: val });
+                              }
+                            }}
+                          >
+                            {ECN_OVERALL_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ minWidth: "100px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="table-inline-input"
+                            placeholder="Circuits"
+                            defaultValue={e.no_of_ckt !== undefined && e.no_of_ckt !== null ? String(e.no_of_ckt) : ""}
+                            key={`ecn-ckt-${e.id}-${e.no_of_ckt ?? ""}`}
+                            onKeyDown={(ev) => {
+                              if (!/[0-9]/.test(ev.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(ev.key)) {
+                                ev.preventDefault();
+                              }
+                              if (ev.key === "Enter") (ev.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={async (ev) => {
+                              const cleanVal = ev.target.value.replace(/[^0-9]/g, "");
+                              const numVal = cleanVal ? Number(cleanVal) : null;
+                              if (numVal !== (e.no_of_ckt ?? null)) {
+                                await handleInlineEcnUpdate(e.id, { no_of_ckt: numVal });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "110px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="table-inline-input"
+                            placeholder="Volume"
+                            defaultValue={e.volume !== undefined && e.volume !== null ? String(e.volume) : ""}
+                            key={`ecn-vol-${e.id}-${e.volume ?? ""}`}
+                            onKeyDown={(ev) => {
+                              if (!/[0-9]/.test(ev.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(ev.key)) {
+                                ev.preventDefault();
+                              }
+                              if (ev.key === "Enter") (ev.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={async (ev) => {
+                              const cleanVal = ev.target.value.replace(/[^0-9]/g, "");
+                              const numVal = cleanVal ? Number(cleanVal) : null;
+                              if (numVal !== (e.volume ?? null)) {
+                                await handleInlineEcnUpdate(e.id, { volume: numVal });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.work_start_date || ""}
+                            key={`ecn-wsd-${e.id}-${e.work_start_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.work_start_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { work_start_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.target_date || ""}
+                            key={`ecn-td-${e.id}-${e.target_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.target_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { target_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="date"
+                            className="table-inline-input"
+                            defaultValue={e.completion_date || e.actual_date || ""}
+                            key={`ecn-act-${e.id}-${e.completion_date || e.actual_date || ""}`}
+                            onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
+                              if (val !== (e.completion_date || e.actual_date || "")) {
+                                await handleInlineEcnUpdate(e.id, { completion_date: val, actual_date: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          {e.is_deleted ? (
+                            <span className="badge badge-cancelled" style={{ fontSize: "11px" }}>Permanently Deleted</span>
+                          ) : (
+                            <div style={{ display: "flex", gap: "6px" }}>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: "4px 8px", fontSize: "11px" }}
+                                onClick={() => {
+                                  setModalType("edit_ecn");
+                                  setModalData({
+                                    ...e,
+                                    no_of_ckt: e.no_of_ckt !== undefined && e.no_of_ckt !== null ? String(e.no_of_ckt) : "",
+                                    volume: e.volume !== undefined && e.volume !== null ? String(e.volume) : ""
+                                  });
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: "4px 8px", fontSize: "11px", color: "#f87171", borderColor: "rgba(239, 68, 68, 0.4)" }}
+                                title="Delete ECN"
+                                onClick={() => setDeleteConfirmTarget({ id: e.id, targetNum: e.ecn_number || String(e.id), type: "ecn" })}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1124,7 +2160,7 @@ export default function App() {
       {/* 3. MODAL DIALOGS FOR POKA-YOKE INPUTS */}
       {modalType && (
         <div className="modal-overlay">
-          <div className="modal-card">
+          <div className={`modal-card ${modalType === "new_rfq" || modalType === "edit_rfq" ? "modal-card-lg" : ""}`}>
             <div className="modal-header">
               <div className="modal-title">
                 {modalType === "new_customer" && "Add New Customer"}
@@ -1132,8 +2168,8 @@ export default function App() {
                 {modalType === "new_project" && "Create Customer Model / Project"}
                 {modalType === "new_harness" && "Register Globally Unique Harness"}
                 {modalType === "new_revision" && "Add Harness Revision"}
-                {modalType === "new_rfq" && "Create RFQ"}
-                {modalType === "edit_rfq" && `Update RFQ — ${modalData.rfq_number}`}
+                {modalType === "new_rfq" && "Create RFQ — Costing & Milestone Tracking"}
+                {modalType === "edit_rfq" && `Update RFQ — ${modalData.sr_no || modalData.rfq_number || ""}`}
                 {modalType === "new_ecn" && "Create ECN"}
                 {modalType === "edit_ecn" && `Update ECN — ${modalData.ecn_number}`}
                 {modalType === "upload_bom" && "Upload SAP BOM (FG Code + Alternate)"}
@@ -1150,7 +2186,7 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleModalSubmit}>
+            <form onSubmit={handleModalSubmit} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
               <div className="modal-body">
                 {modalError && (
                   <div className="error-banner">
@@ -1320,153 +2356,312 @@ export default function App() {
                 {/* FORM: NEW RFQ */}
                 {modalType === "new_rfq" && (
                   <>
-                    <div className="form-group">
-                      <label className="form-label">Harness *</label>
-                      <select
-                        required
-                        value={modalData.harness_id || ""}
-                        onChange={e => setModalData({ ...modalData, harness_id: e.target.value, revision_id: "" })}
-                      >
-                        <option value="">Select Harness...</option>
-                        {harnesses.map(h => (
-                          <option key={h.id} value={h.id}>{h.harness_number} ({h.customer_name} - {h.model_name})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Revision *</label>
-                      <select
-                        required
-                        value={modalData.revision_id || ""}
-                        onChange={e => setModalData({ ...modalData, revision_id: e.target.value })}
-                      >
-                        <option value="">Select Revision...</option>
-                        {revisions
-                          .filter(r => !modalData.harness_id || r.harness_id === Number(modalData.harness_id))
-                          .map(r => (
-                            <option key={r.id} value={r.id}>Rev {r.revision_code} ({r.sop_number})</option>
+                    <div className="form-section-title">1. RFQ & Part Identification</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Sr .No (unique RFQ No.)</label>
+                        <input
+                          type="text"
+                          placeholder="Auto-generated e.g. RFQ618260001"
+                          value={modalData.sr_no || modalData.rfq_number || ""}
+                          onChange={e => setModalData({ ...modalData, sr_no: e.target.value, rfq_number: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Customer Name</label>
+                        <select
+                          value={modalData.customer_name || ""}
+                          onChange={e => setModalData({ ...modalData, customer_name: e.target.value })}
+                        >
+                          <option value="">Select Customer from Customer Master...</option>
+                          {customers.map(c => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
                           ))}
-                      </select>
+                          {modalData.customer_name && !customers.some(c => c.name === modalData.customer_name) && (
+                            <option value={modalData.customer_name}>{modalData.customer_name}</option>
+                          )}
+                        </select>
+                      </div>
                     </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Model</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Scorpio-EV or Nexon-EV"
+                          value={modalData.model || ""}
+                          onChange={e => setModalData({ ...modalData, model: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Drawing Number</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. DWG-2026-X88"
+                          value={modalData.drawing_number || ""}
+                          onChange={e => setModalData({ ...modalData, drawing_number: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Unique RFQ No.</label>
+                      <input
+                        type="text"
+                        placeholder="Auto-generated e.g. RFQ618260001"
+                        value={modalData.unique_rfq_no || modalData.rfq_number || ""}
+                        onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Harness Part No.</label>
+                        <input
+                          type="text"
+                          list="harness-datalist"
+                          placeholder="Enter harness part no. (any text or number)"
+                          value={modalData.harness_part_no || ""}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const matched = harnesses.find(h => h.harness_number === val);
+                            if (matched) {
+                              setModalData({
+                                ...modalData,
+                                harness_part_no: val,
+                                harness_id: matched.id,
+                                description: modalData.description || `${matched.customer_name} - ${matched.model_name}`
+                              });
+                            } else {
+                              setModalData({ ...modalData, harness_part_no: val, harness_id: "" });
+                            }
+                          }}
+                        />
+                        <datalist id="harness-datalist">
+                          {harnesses.map(h => (
+                            <option key={h.id} value={h.harness_number}>{h.harness_number} ({h.customer_name} - {h.model_name})</option>
+                          ))}
+                        </datalist>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Customer Revision</label>
+                        <input
+                          type="text"
+                          placeholder="Enter customer revision (e.g. 01, A, Rev-2)"
+                          value={modalData.customer_revision || ""}
+                          onChange={e => setModalData({ ...modalData, customer_revision: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">FG Code</label>
                         <input
                           type="text"
-                          placeholder="e.g. FG-NXN-MAIN-901"
+                          placeholder="e.g. FG-NXN-MAIN-901 (any text or number)"
                           value={modalData.fg_code || ""}
-                          onChange={e => setModalData({ ...modalData, fg_code: e.target.value.toUpperCase() })}
+                          onChange={e => setModalData({ ...modalData, fg_code: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
                         <label className="form-label">FG Rev</label>
                         <input
                           type="text"
-                          placeholder="e.g. BA"
+                          placeholder="e.g. BA or 01 (any text or number)"
                           value={modalData.fg_rev || ""}
                           onChange={e => setModalData({ ...modalData, fg_rev: e.target.value })}
                         />
                       </div>
                     </div>
+
                     <div className="form-group">
                       <label className="form-label">Description</label>
                       <input
                         type="text"
-                        placeholder="e.g. Main Body Wiring Harness"
+                        placeholder="e.g. Main Body Wiring Harness (any text or number)"
                         value={modalData.description || ""}
                         onChange={e => setModalData({ ...modalData, description: e.target.value })}
                       />
                     </div>
+
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Marketing Input Received Date</label>
+                        <label className="form-label">No. of ckt (Circuits)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="e.g. 88 (digits only)"
+                          value={modalData.no_of_ckt !== undefined ? modalData.no_of_ckt : ""}
+                          onKeyDown={(e) => {
+                            if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, no_of_ckt: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Volume (Annual Volume)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="e.g. 14500 (digits only)"
+                          value={modalData.volume !== undefined ? modalData.volume : ""}
+                          onKeyDown={(e) => {
+                            if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, volume: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-section-title">2. Input & Milestone Dates</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Marketing Input Received Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.marketing_input_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, marketing_input_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Design Input Received Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Design Input Received Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.design_input_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, design_input_date: e.target.value })}
                         />
                       </div>
                     </div>
-                    <div className="form-row">
+
+                    <div className="form-row-3">
                       <div className="form-group">
-                        <label className="form-label">Start Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Start Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.work_start_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, work_start_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Target Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Target Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.target_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, target_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Actual Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Actual Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.completion_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, completion_date: e.target.value })}
                         />
                       </div>
                     </div>
+
+                    <div className="form-section-title">3. Customer Query Tracking</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Query Sent Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Query Sent Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.query_submitted_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, query_submitted_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Query Resolve Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Query Resolve Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.reply_received_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, reply_received_date: e.target.value })}
                         />
                       </div>
                     </div>
+
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">Query Type</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Technical / Commercial"
+                        <select
                           value={modalData.query_type || ""}
                           onChange={e => setModalData({ ...modalData, query_type: e.target.value })}
-                        />
+                        >
+                          <option value="">Select Query Type...</option>
+                          {QUERY_TYPE_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="form-group">
                         <label className="form-label">Query Status</label>
                         <select
                           value={modalData.query_status || "Open"}
-                          onChange={e => setModalData({ ...modalData, query_status: e.target.value, query_yes_no: e.target.value !== "Cancelled" })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const isAll = (val.toLowerCase() === "close" || val.toLowerCase() === "closed") &&
+                              ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
+                              ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed");
+                            setModalData({
+                              ...modalData,
+                              query_status: val,
+                              query_yes_no: val !== "Close",
+                              overall_rfq_status: isAll ? "Close" : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
+                            });
+                          }}
                         >
-                          <option value="Open">Open (Blocks Costing BOM!)</option>
-                          <option value="Resolved">Resolved</option>
-                          <option value="Cancelled">Cancelled</option>
+                          {RFQ_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
+
+                    <div className="form-section-title">4. Unique List & Costing BOM</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Unique List Share Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Unique List Share Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.unique_list_share_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, unique_list_share_date: e.target.value })}
                         />
                       </div>
@@ -1474,66 +2669,146 @@ export default function App() {
                         <label className="form-label">Unique Status</label>
                         <select
                           value={modalData.unique_status || "Open"}
-                          onChange={e => setModalData({ ...modalData, unique_status: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const isAll = ((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
+                              (val.toLowerCase() === "close" || val.toLowerCase() === "closed") &&
+                              ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed");
+                            setModalData({
+                              ...modalData,
+                              unique_status: val,
+                              overall_rfq_status: isAll ? "Close" : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
+                            });
+                          }}
                         >
-                          <option value="Open">Open</option>
-                          <option value="In Progress">In Progress</option>
-                          <option value="Completed">Completed</option>
-                          <option value="Cancelled">Cancelled</option>
+                          {RFQ_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
-                    <div className="form-row">
+
+                    <div className="form-row-3">
                       <div className="form-group">
-                        <label className="form-label">Costing BOM Prepare Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Costing BOM Prepare Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.costing_bom_prepare_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, costing_bom_prepare_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Costing BOM Shared Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Costing BOM Shared Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.costing_bom_submitted_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, costing_bom_submitted_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
                         <label className="form-label">Costing BOM Status</label>
                         <select
-                          value={modalData.costing_bom_status || "Pending"}
-                          onChange={e => setModalData({ ...modalData, costing_bom_status: e.target.value })}
+                          value={modalData.costing_bom_status || "Open"}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const isAll = ((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
+                              ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
+                              (val.toLowerCase() === "close" || val.toLowerCase() === "closed");
+                            setModalData({
+                              ...modalData,
+                              costing_bom_status: val,
+                              overall_rfq_status: isAll ? "Close" : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
+                            });
+                          }}
                         >
-                          <option value="Pending">Pending</option>
-                          <option value="Draft">Draft</option>
-                          <option value="Submitted">Submitted</option>
-                          <option value="Approved">Approved</option>
+                          {COSTING_BOM_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Remark</label>
-                      <input
-                        type="text"
-                        placeholder="Remark or notes"
-                        value={modalData.remark || ""}
-                        onChange={e => setModalData({ ...modalData, remark: e.target.value })}
-                      />
+
+                    <div className="form-section-title">5. Status & Remarks</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Over all status</label>
+                        <select
+                          value={
+                            (((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
+                             ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
+                             ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed"))
+                              ? "Close"
+                              : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
+                          }
+                          onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
+                        >
+                          {OVERALL_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Name (Engineer Master)</label>
+                        <select
+                          value={modalData.engineer_id || ""}
+                          onChange={e => {
+                            const engId = e.target.value ? Number(e.target.value) : null;
+                            const eng = engineers.find(item => item.id === engId);
+                            setModalData({
+                              ...modalData,
+                              engineer_id: engId,
+                              engineer_name: eng ? eng.name : ""
+                            });
+                          }}
+                        >
+                          <option value="">Select Name from Engineer Master...</option>
+                          {engineers.filter(e => e.is_active || e.id === Number(modalData.engineer_id)).map(e => (
+                            <option key={e.id} value={e.id}>{e.name}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Over all status</label>
-                      <select
-                        value={modalData.overall_rfq_status || "Open"}
-                        onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
-                      >
-                        <option value="Open">Open</option>
-                        <option value="In Progress">In Progress</option>
-                        <option value="Submitted">Submitted</option>
-                        <option value="Completed">Completed</option>
-                        <option value="Cancelled">Cancelled</option>
-                      </select>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Remark</label>
+                        <input
+                          type="text"
+                          placeholder="Remark or engineering notes"
+                          value={modalData.remark || ""}
+                          onChange={e => setModalData({ ...modalData, remark: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Review Note</label>
+                        <input
+                          type="text"
+                          placeholder="Review note before actions"
+                          value={modalData.review_note || ""}
+                          onChange={e => setModalData({ ...modalData, review_note: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: "14px", padding: "12px 14px", background: "rgba(56, 189, 248, 0.08)", border: "1px solid rgba(56, 189, 248, 0.25)", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
+                      <input
+                        type="checkbox"
+                        id="create_ecn_checkbox"
+                        style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#38bdf8" }}
+                        checked={Boolean(modalData.create_ecn)}
+                        onChange={e => setModalData({ ...modalData, create_ecn: e.target.checked })}
+                      />
+                      <label htmlFor="create_ecn_checkbox" style={{ cursor: "pointer", margin: 0, fontWeight: 600, color: "#e2e8f0", fontSize: "13px" }}>
+                        Create ECN immediately as well? (Autofills ECN Sheet with RFQ data)
+                      </label>
                     </div>
                   </>
                 )}
@@ -1541,6 +2816,94 @@ export default function App() {
                 {/* FORM: EDIT RFQ */}
                 {modalType === "edit_rfq" && (
                   <>
+                    <div style={{ background: "#0b1120", padding: "10px 14px", borderRadius: "8px", border: "1px solid #1e293b", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", fontWeight: 600 }}>Linked Harness & Model: </span>
+                      <span style={{ color: "#38bdf8", fontWeight: 700 }}>{modalData.harness_part_no || modalData.harness_number || "Harness"}</span>
+                      <span style={{ color: "#94a3b8" }}> | Customer Rev: </span>
+                      <span style={{ color: "#34d399", fontWeight: 700 }}>{modalData.customer_revision || modalData.revision_code || "Rev"}</span>
+                      {(modalData.model || modalData.model_name || modalData.customer_name) && (
+                        <span style={{ color: "#e2e8f0" }}> ({modalData.customer_name ? `${modalData.customer_name} - ` : ""}{modalData.model || modalData.model_name})</span>
+                      )}
+                    </div>
+
+                    <div className="form-section-title">1. RFQ & Part Identification</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Sr .No (unique RFQ No.)</label>
+                        <input
+                          type="text"
+                          value={modalData.sr_no || ""}
+                          onChange={e => setModalData({ ...modalData, sr_no: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Customer Name</label>
+                        <select
+                          value={modalData.customer_name || ""}
+                          onChange={e => setModalData({ ...modalData, customer_name: e.target.value })}
+                        >
+                          <option value="">Select Customer from Customer Master...</option>
+                          {customers.map(c => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
+                          ))}
+                          {modalData.customer_name && !customers.some(c => c.name === modalData.customer_name) && (
+                            <option value={modalData.customer_name}>{modalData.customer_name}</option>
+                          )}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Model</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Scorpio-EV or Nexon-EV"
+                          value={modalData.model || ""}
+                          onChange={e => setModalData({ ...modalData, model: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Drawing Number</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. DWG-2026-X88"
+                          value={modalData.drawing_number || ""}
+                          onChange={e => setModalData({ ...modalData, drawing_number: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Unique RFQ No.</label>
+                      <input
+                        type="text"
+                        value={modalData.unique_rfq_no || ""}
+                        onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Harness Part No.</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 12345 or HARN-NXN-01 (any text or number)"
+                          value={modalData.harness_part_no !== undefined ? modalData.harness_part_no : (modalData.harness_number || "")}
+                          onChange={e => setModalData({ ...modalData, harness_part_no: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Customer Revision</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 01, A, Rev-2 (any text or number)"
+                          value={modalData.customer_revision !== undefined ? modalData.customer_revision : (modalData.revision_code || "")}
+                          onChange={e => setModalData({ ...modalData, customer_revision: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">FG Code</label>
@@ -1548,7 +2911,7 @@ export default function App() {
                           type="text"
                           placeholder="e.g. FG-NXN-MAIN-901"
                           value={modalData.fg_code || ""}
-                          onChange={e => setModalData({ ...modalData, fg_code: e.target.value.toUpperCase() })}
+                          onChange={e => setModalData({ ...modalData, fg_code: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
@@ -1561,6 +2924,7 @@ export default function App() {
                         />
                       </div>
                     </div>
+
                     <div className="form-group">
                       <label className="form-label">Description</label>
                       <input
@@ -1570,97 +2934,483 @@ export default function App() {
                         onChange={e => setModalData({ ...modalData, description: e.target.value })}
                       />
                     </div>
+
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Marketing Input Received Date</label>
+                        <label className="form-label">No. of ckt (Circuits)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="e.g. 88 (digits only)"
+                          value={modalData.no_of_ckt !== undefined ? modalData.no_of_ckt : ""}
+                          onKeyDown={(e) => {
+                            if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, no_of_ckt: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Volume (Annual Volume)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="e.g. 14500 (digits only)"
+                          value={modalData.volume !== undefined ? modalData.volume : ""}
+                          onKeyDown={(e) => {
+                            if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, volume: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-section-title">2. Input & Milestone Dates</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Marketing Input Received Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.marketing_input_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, marketing_input_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Design Input Received Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Design Input Received Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.design_input_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, design_input_date: e.target.value })}
                         />
                       </div>
                     </div>
-                    <div className="form-row">
+
+                    <div className="form-row-3">
                       <div className="form-group">
-                        <label className="form-label">Start Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Start Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.work_start_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, work_start_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Target Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Target Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.target_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, target_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Actual Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Actual Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.completion_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, completion_date: e.target.value })}
                         />
                       </div>
                     </div>
+
+                    <div className="form-section-title">3. Customer Query Tracking</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Query Sent Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Query Sent Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.query_submitted_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, query_submitted_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Query Resolve Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Query Resolve Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.reply_received_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, reply_received_date: e.target.value })}
                         />
                       </div>
                     </div>
+
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">Query Type</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Technical / Commercial"
+                        <select
                           value={modalData.query_type || ""}
                           onChange={e => setModalData({ ...modalData, query_type: e.target.value })}
-                        />
+                        >
+                          <option value="">Select Query Type...</option>
+                          {QUERY_TYPE_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="form-group">
                         <label className="form-label">Query Status</label>
                         <select
                           value={modalData.query_status || "Open"}
-                          onChange={e => setModalData({ ...modalData, query_status: e.target.value, query_yes_no: e.target.value !== "Cancelled" })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const isAll = (val.toLowerCase() === "close" || val.toLowerCase() === "closed") &&
+                              ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
+                              ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed");
+                            setModalData({
+                              ...modalData,
+                              query_status: val,
+                              query_yes_no: val !== "Close",
+                              overall_rfq_status: isAll ? "Close" : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
+                            });
+                          }}
                         >
-                          <option value="Open">Open (Blocks Costing BOM!)</option>
-                          <option value="Resolved">Resolved</option>
-                          <option value="Cancelled">Cancelled</option>
+                          {RFQ_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
+
+                    <div className="form-section-title">4. Unique List & Costing BOM</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Unique List Share Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Unique List Share Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.unique_list_share_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, unique_list_share_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Unique Status</label>
+                        <select
+                          value={modalData.unique_status || "Open"}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const isAll = ((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
+                              (val.toLowerCase() === "close" || val.toLowerCase() === "closed") &&
+                              ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed");
+                            setModalData({
+                              ...modalData,
+                              unique_status: val,
+                              overall_rfq_status: isAll ? "Close" : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
+                            });
+                          }}
+                        >
+                          {RFQ_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Costing BOM Prepare Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.costing_bom_prepare_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, costing_bom_prepare_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Costing BOM Shared Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.costing_bom_submitted_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, costing_bom_submitted_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Costing BOM Status</label>
+                        <select
+                          value={modalData.costing_bom_status || "Open"}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const isAll = ((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
+                              ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
+                              (val.toLowerCase() === "close" || val.toLowerCase() === "closed");
+                            setModalData({
+                              ...modalData,
+                              costing_bom_status: val,
+                              overall_rfq_status: isAll ? "Close" : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
+                            });
+                          }}
+                        >
+                          {COSTING_BOM_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-section-title">5. Status & Remarks</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Over all status</label>
+                        <select
+                          value={
+                            (((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
+                             ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
+                             ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed"))
+                              ? "Close"
+                              : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
+                          }
+                          onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
+                        >
+                          {OVERALL_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Name (Engineer Master)</label>
+                        <select
+                          value={modalData.engineer_id || ""}
+                          onChange={e => {
+                            const engId = e.target.value ? Number(e.target.value) : null;
+                            const eng = engineers.find(item => item.id === engId);
+                            setModalData({
+                              ...modalData,
+                              engineer_id: engId,
+                              engineer_name: eng ? eng.name : ""
+                            });
+                          }}
+                        >
+                          <option value="">Select Name from Engineer Master...</option>
+                          {engineers.filter(e => e.is_active || e.id === Number(modalData.engineer_id)).map(e => (
+                            <option key={e.id} value={e.id}>{e.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Remark</label>
+                        <input
+                          type="text"
+                          placeholder="Remark or engineering notes"
+                          value={modalData.remark || ""}
+                          onChange={e => setModalData({ ...modalData, remark: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Review Note</label>
+                        <input
+                          type="text"
+                          placeholder="Review note before actions"
+                          value={modalData.review_note || ""}
+                          onChange={e => setModalData({ ...modalData, review_note: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* FORM: NEW ECN */}
+                {modalType === "new_ecn" && (
+                  <>
+                    <div className="form-section-title">1. ECN & RFQ Identification</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">RFQ No.</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. RFQ618260001"
+                          value={modalData.rfq_no || ""}
+                          onChange={e => setModalData({ ...modalData, rfq_no: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Stage</label>
+                        <select
+                          value={modalData.stage || "sample"}
+                          onChange={e => setModalData({ ...modalData, stage: e.target.value })}
+                        >
+                          {ECN_STAGE_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Customer Name</label>
+                        <select
+                          value={modalData.customer_name || ""}
+                          onChange={e => setModalData({ ...modalData, customer_name: e.target.value })}
+                        >
+                          <option value="">Select Customer from Customer Master...</option>
+                          {customers.map(c => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
+                          ))}
+                          {modalData.customer_name && !customers.some(c => c.name === modalData.customer_name) && (
+                            <option value={modalData.customer_name}>{modalData.customer_name}</option>
+                          )}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Model Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Scorpio-EV"
+                          value={modalData.model_name || ""}
+                          onChange={e => setModalData({ ...modalData, model_name: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">No. of ckt (Circuits)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="e.g. 88 (digits only)"
+                          value={modalData.no_of_ckt !== undefined ? modalData.no_of_ckt : ""}
+                          onKeyDown={(e) => {
+                            if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, no_of_ckt: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Volume</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="e.g. 15000 (digits only)"
+                          value={modalData.volume !== undefined ? modalData.volume : ""}
+                          onKeyDown={(e) => {
+                            if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, volume: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-section-title">2. Timeline & Target Dates</div>
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Start Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.work_start_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, work_start_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Target Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.target_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, target_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Actual Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.completion_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, completion_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-section-title">3. Queries & Unique RFQ</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Query Status</label>
+                        <select
+                          value={modalData.query_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, query_status: e.target.value })}
+                        >
+                          {RFQ_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Unique List Share Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.unique_list_share_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, unique_list_share_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Unique RFQ No.</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. RFQ618260001"
+                          value={modalData.unique_rfq_no || ""}
+                          onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
@@ -1669,212 +3419,128 @@ export default function App() {
                           value={modalData.unique_status || "Open"}
                           onChange={e => setModalData({ ...modalData, unique_status: e.target.value })}
                         >
-                          <option value="Open">Open</option>
-                          <option value="In Progress">In Progress</option>
-                          <option value="Completed">Completed</option>
-                          <option value="Cancelled">Cancelled</option>
+                          {RFQ_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label className="form-label">Costing BOM Prepare Date</label>
-                        <input
-                          type="date"
-                          value={modalData.costing_bom_prepare_date || ""}
-                          onChange={e => setModalData({ ...modalData, costing_bom_prepare_date: e.target.value })}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Costing BOM Shared Date</label>
-                        <input
-                          type="date"
-                          value={modalData.costing_bom_submitted_date || ""}
-                          onChange={e => setModalData({ ...modalData, costing_bom_submitted_date: e.target.value })}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Costing BOM Status</label>
-                        <select
-                          value={modalData.costing_bom_status || "Pending"}
-                          onChange={e => setModalData({ ...modalData, costing_bom_status: e.target.value })}
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="Draft">Draft</option>
-                          <option value="Submitted">Submitted</option>
-                          <option value="Approved">Approved</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Remark</label>
-                      <input
-                        type="text"
-                        placeholder="Remark or notes"
-                        value={modalData.remark || ""}
-                        onChange={e => setModalData({ ...modalData, remark: e.target.value })}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Over all status</label>
-                      <select
-                        value={modalData.overall_rfq_status || "Open"}
-                        onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
-                      >
-                        <option value="Open">Open</option>
-                        <option value="In Progress">In Progress</option>
-                        <option value="Submitted">Submitted</option>
-                        <option value="Completed">Completed</option>
-                        <option value="Cancelled">Cancelled</option>
-                      </select>
-                    </div>
-                  </>
-                )}
 
-                {/* FORM: NEW ECN */}
-                {modalType === "new_ecn" && (
-                  <>
-                    <div className="form-group">
-                      <label className="form-label">Harness *</label>
-                      <select
-                        required
-                        value={modalData.harness_id || ""}
-                        onChange={e => setModalData({ ...modalData, harness_id: e.target.value, source_revision_id: "", rfq_id: "" })}
-                      >
-                        <option value="">Select Harness...</option>
-                        {harnesses.map(h => (
-                          <option key={h.id} value={h.id}>{h.harness_number} ({h.customer_name} - {h.model_name})</option>
-                        ))}
-                      </select>
-                    </div>
+                    <div className="form-section-title">4. SAP BOM & Labels</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Source / Current Revision *</label>
-                        <select
-                          required
-                          value={modalData.source_revision_id || ""}
-                          onChange={e => setModalData({ ...modalData, source_revision_id: e.target.value })}
-                        >
-                          <option value="">Select Source Rev...</option>
-                          {revisions
-                            .filter(r => !modalData.harness_id || r.harness_id === Number(modalData.harness_id))
-                            .map(r => (
-                              <option key={r.id} value={r.id}>Rev {r.revision_code} ({r.sop_number})</option>
-                            ))}
-                        </select>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> SAP BOM Upload Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.sap_bom_upload_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, sap_bom_upload_date: e.target.value })}
+                        />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Revision Impact *</label>
-                        <select
-                          value={modalData.revision_impact || "Same Revision"}
-                          onChange={e => setModalData({ ...modalData, revision_impact: e.target.value })}
-                        >
-                          <option value="Same Revision">Same Revision</option>
-                          <option value="New Revision">New Revision</option>
-                        </select>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> SAP BOM Released Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.sap_bom_released_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, sap_bom_released_date: e.target.value })}
+                        />
                       </div>
                     </div>
-                    {modalData.revision_impact === "New Revision" && (
-                      <div className="form-group">
-                        <label className="form-label">New Revision Target *</label>
-                        <select
-                          required
-                          value={modalData.new_revision_id || ""}
-                          onChange={e => setModalData({ ...modalData, new_revision_id: e.target.value })}
-                        >
-                          <option value="">Select resulting revision...</option>
-                          {revisions
-                            .filter(r => !modalData.harness_id || r.harness_id === Number(modalData.harness_id))
-                            .map(r => (
-                              <option key={r.id} value={r.id}>Rev {r.revision_code}</option>
-                            ))}
-                        </select>
-                      </div>
-                    )}
+
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Stage / Context *</label>
-                        <select
-                          value={modalData.stage_context || "Sample"}
-                          onChange={e => setModalData({ ...modalData, stage_context: e.target.value })}
-                        >
-                          <option value="Sample">Sample</option>
-                          <option value="Production">Production</option>
-                        </select>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> PRD BOM Release Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.prd_bom_release_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, prd_bom_release_date: e.target.value })}
+                        />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Development Type *</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Label Upload Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.label_upload_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, label_upload_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-section-title">5. MIN & Overall Status</div>
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> MIN by Engineer Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.min_by_engineer_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, min_by_engineer_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> MIN by PPC
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.min_by_ppc || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, min_by_ppc: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">MIN Status</label>
                         <select
-                          value={modalData.development_type || "New Development"}
-                          onChange={e => setModalData({ ...modalData, development_type: e.target.value })}
+                          value={modalData.min_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, min_status: e.target.value })}
                         >
-                          <option value="New Development">New Development</option>
-                          <option value="Productized">Productized</option>
+                          {ECN_MIN_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Change / Reason (Mandatory) *</label>
-                      <textarea
-                        required
-                        rows={2}
-                        placeholder="Detailed engineering change description"
-                        value={modalData.change_reason || ""}
-                        onChange={e => setModalData({ ...modalData, change_reason: e.target.value })}
-                      />
-                    </div>
+
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Primary Engineer *</label>
+                        <label className="form-label">Over all status</label>
                         <select
-                          required
-                          value={modalData.primary_engineer_id || ""}
-                          onChange={e => setModalData({ ...modalData, primary_engineer_id: e.target.value })}
+                          value={modalData.overall_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, overall_status: e.target.value })}
                         >
-                          <option value="">Select Primary Engineer...</option>
-                          {engineers.filter(e => e.is_active).map(e => (
-                            <option key={e.id} value={e.id}>{e.name}</option>
+                          {ECN_OVERALL_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
                           ))}
                         </select>
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Target Date *</label>
+                        <label className="form-label">Review</label>
                         <input
-                          type="date"
-                          required
-                          value={modalData.target_date || ""}
-                          onChange={e => setModalData({ ...modalData, target_date: e.target.value })}
+                          type="text"
+                          placeholder="Review notes..."
+                          value={modalData.review || ""}
+                          onChange={e => setModalData({ ...modalData, review: e.target.value })}
                         />
                       </div>
-                    </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label className="form-label">Costing Required?</label>
-                        <select
-                          value={modalData.costing_required ? "1" : "0"}
-                          onChange={e => setModalData({ ...modalData, costing_required: e.target.value === "1" })}
-                        >
-                          <option value="0">No</option>
-                          <option value="1">Yes (Mandates Linked RFQ)</option>
-                        </select>
-                      </div>
-                      {modalData.costing_required && (
-                        <div className="form-group">
-                          <label className="form-label">Related RFQ *</label>
-                          <select
-                            required
-                            value={modalData.rfq_id || ""}
-                            onChange={e => setModalData({ ...modalData, rfq_id: e.target.value })}
-                          >
-                            <option value="">Select RFQ...</option>
-                            {rfqs
-                              .filter(r => !modalData.harness_id || r.harness_id === Number(modalData.harness_id))
-                              .map(r => (
-                                <option key={r.id} value={r.id}>{r.rfq_number} ({r.overall_rfq_status})</option>
-                              ))}
-                          </select>
-                        </div>
-                      )}
                     </div>
                   </>
                 )}
@@ -1882,62 +3548,303 @@ export default function App() {
                 {/* FORM: EDIT ECN */}
                 {modalType === "edit_ecn" && (
                   <>
+                    <div style={{ background: "#0b1120", padding: "10px 14px", borderRadius: "8px", border: "1px solid #1e293b", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", fontWeight: 600 }}>Editing ECN: </span>
+                      <span style={{ color: "#38bdf8", fontWeight: 700 }}>{modalData.ecn_number || "ECN"}</span>
+                      {modalData.rfq_no && (
+                        <span style={{ color: "#94a3b8" }}> | Linked RFQ: <span style={{ color: "#34d399", fontWeight: 700 }}>{modalData.rfq_no}</span></span>
+                      )}
+                    </div>
+
+                    <div className="form-section-title">1. ECN & RFQ Identification</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Work Start Date</label>
+                        <label className="form-label">RFQ No.</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. RFQ618260001"
+                          value={modalData.rfq_no || ""}
+                          onChange={e => setModalData({ ...modalData, rfq_no: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Stage</label>
+                        <select
+                          value={modalData.stage || "sample"}
+                          onChange={e => setModalData({ ...modalData, stage: e.target.value })}
+                        >
+                          {ECN_STAGE_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Customer Name</label>
+                        <select
+                          value={modalData.customer_name || ""}
+                          onChange={e => setModalData({ ...modalData, customer_name: e.target.value })}
+                        >
+                          <option value="">Select Customer from Customer Master...</option>
+                          {customers.map(c => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
+                          ))}
+                          {modalData.customer_name && !customers.some(c => c.name === modalData.customer_name) && (
+                            <option value={modalData.customer_name}>{modalData.customer_name}</option>
+                          )}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Model Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Scorpio-EV"
+                          value={modalData.model_name || ""}
+                          onChange={e => setModalData({ ...modalData, model_name: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">No. of ckt (Circuits)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="e.g. 88 (digits only)"
+                          value={modalData.no_of_ckt !== undefined ? modalData.no_of_ckt : ""}
+                          onKeyDown={(e) => {
+                            if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, no_of_ckt: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Volume</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="e.g. 15000 (digits only)"
+                          value={modalData.volume !== undefined ? modalData.volume : ""}
+                          onKeyDown={(e) => {
+                            if (!/[0-9]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, volume: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-section-title">2. Timeline & Target Dates</div>
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Start Date
+                        </label>
                         <input
                           type="date"
                           value={modalData.work_start_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, work_start_date: e.target.value })}
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Target Date</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Target Date
+                        </label>
                         <input
                           type="date"
-                          required
                           value={modalData.target_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, target_date: e.target.value })}
                         />
                       </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Actual Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.completion_date || modalData.actual_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, completion_date: e.target.value, actual_date: e.target.value })}
+                        />
+                      </div>
                     </div>
+
+                    <div className="form-section-title">3. Queries & Unique RFQ</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Primary Engineer</label>
+                        <label className="form-label">Query Status</label>
                         <select
-                          value={modalData.primary_engineer_id || ""}
-                          onChange={e => setModalData({ ...modalData, primary_engineer_id: e.target.value })}
+                          value={modalData.query_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, query_status: e.target.value })}
                         >
-                          {engineers.map(e => (
-                            <option key={e.id} value={e.id}>{e.name}</option>
+                          {RFQ_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
                           ))}
                         </select>
-                        {modalData.work_start_date && (
-                          <div style={{ fontSize: "11px", color: "#f59e0b" }}>Locked after work starts.</div>
-                        )}
                       </div>
                       <div className="form-group">
-                        <label className="form-label">ECN Status</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Unique List Share Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.unique_list_share_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, unique_list_share_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Unique RFQ No.</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. RFQ618260001"
+                          value={modalData.unique_rfq_no || ""}
+                          onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Unique Status</label>
                         <select
-                          value={modalData.ecn_status || "In Progress"}
-                          onChange={e => setModalData({ ...modalData, ecn_status: e.target.value })}
+                          value={modalData.unique_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, unique_status: e.target.value })}
                         >
-                          <option value="Draft">Draft</option>
-                          <option value="In Progress">In Progress</option>
-                          <option value="Under Review">Under Review</option>
-                          <option value="Completed">Completed</option>
-                          <option value="Cancelled">Cancelled</option>
+                          {RFQ_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Delay Reason (Mandatory if MIN &gt; Target)</label>
-                      <input
-                        type="text"
-                        placeholder="Customer drawing revision or tooling delay..."
-                        value={modalData.delay_reason || ""}
-                        onChange={e => setModalData({ ...modalData, delay_reason: e.target.value })}
-                      />
+
+                    <div className="form-section-title">4. SAP BOM & Labels</div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> SAP BOM Upload Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.sap_bom_upload_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, sap_bom_upload_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> SAP BOM Released Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.sap_bom_released_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, sap_bom_released_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> PRD BOM Release Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.prd_bom_release_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, prd_bom_release_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> Label Upload Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.label_upload_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, label_upload_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-section-title">5. MIN & Overall Status</div>
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> MIN by Engineer Date
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.min_by_engineer_date || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, min_by_engineer_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Calendar size={13} style={{ color: "#38bdf8" }} /> MIN by PPC
+                        </label>
+                        <input
+                          type="date"
+                          value={modalData.min_by_ppc || ""}
+                          onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                          onChange={e => setModalData({ ...modalData, min_by_ppc: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">MIN Status</label>
+                        <select
+                          value={modalData.min_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, min_status: e.target.value })}
+                        >
+                          {ECN_MIN_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Over all status</label>
+                        <select
+                          value={modalData.overall_status || modalData.ecn_status || "Open"}
+                          onChange={e => setModalData({ ...modalData, overall_status: e.target.value, ecn_status: e.target.value })}
+                        >
+                          {ECN_OVERALL_STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Review</label>
+                        <input
+                          type="text"
+                          placeholder="Review notes..."
+                          value={modalData.review || ""}
+                          onChange={e => setModalData({ ...modalData, review: e.target.value })}
+                        />
+                      </div>
                     </div>
                   </>
                 )}
@@ -2032,11 +3939,15 @@ export default function App() {
                 {/* FORM: RELEASE BOM */}
                 {modalType === "release_bom" && (
                   <div className="form-group">
-                    <label className="form-label">SAP Release Date *</label>
+                    <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Calendar size={13} style={{ color: "#38bdf8" }} /> SAP Release Date *
+                    </label>
                     <input
                       type="date"
                       required
                       value={modalData.release_date || new Date().toISOString().split("T")[0]}
+                      onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                      onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                       onChange={e => setModalData({ ...modalData, release_date: e.target.value })}
                     />
                     <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "4px" }}>
@@ -2078,11 +3989,15 @@ export default function App() {
                 {modalType === "record_min" && (
                   <>
                     <div className="form-group">
-                      <label className="form-label">MIN Meeting Date *</label>
+                      <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Calendar size={13} style={{ color: "#38bdf8" }} /> MIN Meeting Date *
+                      </label>
                       <input
                         type="date"
                         required
                         value={modalData.meeting_date || new Date().toISOString().split("T")[0]}
+                        onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
+                        onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                         onChange={e => setModalData({ ...modalData, meeting_date: e.target.value })}
                       />
                     </div>
@@ -2147,6 +4062,54 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM DELETE CONFIRMATION POPUP MODAL */}
+      {deleteConfirmTarget && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmTarget(null)}>
+          <div
+            className="modal-container"
+            style={{ maxWidth: "420px", border: "1px solid rgba(239, 68, 68, 0.4)", boxShadow: "0 10px 30px rgba(0, 0, 0, 0.8)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header" style={{ borderBottom: "1px solid rgba(239, 68, 68, 0.2)" }}>
+              <div className="modal-title" style={{ color: "#ef4444", display: "flex", alignItems: "center", gap: "8px" }}>
+                <Trash2 size={18} /> Delete {deleteConfirmTarget.type === "ecn" ? "ECN" : "RFQ"}
+              </div>
+              <button className="modal-close" onClick={() => setDeleteConfirmTarget(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "20px" }}>
+              <p style={{ fontSize: "14px", color: "#f1f5f9", margin: 0, lineHeight: 1.5 }}>
+                Are you sure you want to delete {deleteConfirmTarget.type === "ecn" ? "ECN" : "RFQ"} <span style={{ color: "#38bdf8", fontWeight: 700 }}>{deleteConfirmTarget.targetNum}</span>?
+              </p>
+            </div>
+            <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setDeleteConfirmTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => {
+                  if (deleteConfirmTarget.type === "ecn") {
+                    executeDeleteEcn(deleteConfirmTarget.id, deleteConfirmTarget.targetNum);
+                  } else {
+                    executeDeleteRfq(deleteConfirmTarget.id, deleteConfirmTarget.targetNum);
+                  }
+                  setDeleteConfirmTarget(null);
+                }}
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

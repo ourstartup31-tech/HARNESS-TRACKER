@@ -15,9 +15,12 @@ export async function GET(request: Request) {
     if (type === "rfq") {
       const rawData = RFQService.list() as any[];
       data = rawData.map((r, idx) => ({
-        "Sr .No (unique RFQ No.)": r.rfq_number || (idx + 1),
-        "harness part no.": r.harness_number || "",
-        "customer revision": r.revision_code || "",
+        "Sr .No (unique RFQ No.)": r.sr_no || r.rfq_number || (idx + 1),
+        "Customer Name": r.customer_name || "",
+        "Model": r.model || r.model_name || "",
+        "Drawing Number": r.drawing_number || "",
+        "harness part no.": r.harness_part_no || r.harness_number || "",
+        "customer revision": r.customer_revision || r.revision_code || "",
         "fg code": r.fg_code || "",
         "fg rev.": r.fg_rev || "",
         "description": r.description || (r.customer_name ? `${r.customer_name} - ${r.model_name}` : ""),
@@ -28,22 +31,49 @@ export async function GET(request: Request) {
         "Query type": r.query_type || "",
         "Query status": r.query_status || (r.query_yes_no ? "Open" : "No Query"),
         "Unique list share date": r.unique_list_share_date || "",
-        "Unique RFQ No.": r.rfq_number || "",
+        "Unique RFQ No.": r.unique_rfq_no || r.rfq_number || "",
         "Unique status": r.unique_status || r.overall_rfq_status || "Open",
         "costing BOM prepare date": r.costing_bom_prepare_date || "",
         "Costing BOM shared date": r.costing_bom_submitted_date || "",
         "Costing BOM Status": r.costing_bom_status || (r.costing_bom_submitted_date ? "Submitted" : "Pending"),
         "Remark": r.remark || r.query_remark || r.proposal_remark || "",
         "Over all status": r.overall_rfq_status || "Open",
-        "No. of ckt": r.circuit_count ?? 0,
+        "Name": r.engineer_name || "",
+        "No. of ckt": r.no_of_ckt ?? r.circuit_count ?? 0,
         "Volume": r.volume ?? 0,
         "Start date": r.work_start_date || "",
         "Target Date": r.target_date || "",
         "Actual Date": r.completion_date || "",
+        "Review Note": r.review_note || "",
       }));
       filename = "RFQ_Tracker";
     } else if (type === "ecn") {
-      data = ECNService.list();
+      const rawData = ECNService.list() as any[];
+      data = rawData.map((e, idx) => ({
+        "ecn no.": e.ecn_number || (idx + 1),
+        "rfq no.": e.rfq_no || e.related_rfq_number || "",
+        "stage": e.stage || "sample",
+        "customer name": e.customer_name || "",
+        "model name": e.model_name || "",
+        "Query status": e.query_status || "Open",
+        "Unique list share date": e.unique_list_share_date || "",
+        "Unique RFQ No.": e.unique_rfq_no || "",
+        "Unique status": e.unique_status || "Open",
+        "sap bom upload date": e.sap_bom_upload_date || "",
+        "sap bom released date": e.sap_bom_released_date || "",
+        "prd bom release date": e.prd_bom_release_date || "",
+        "label upload date": e.label_upload_date || "",
+        "min by engineer date": e.min_by_engineer_date || "",
+        "min by ppc": e.min_by_ppc || "",
+        "min status": e.min_status || "Open",
+        "review": e.review || "",
+        "Over all status": e.overall_status || e.ecn_status || "Open",
+        "No. of ckt": e.no_of_ckt ?? 0,
+        "Volume": e.volume ?? 0,
+        "Start date": e.work_start_date || "",
+        "Target Date": e.target_date || "",
+        "Actual Date": e.completion_date || e.actual_date || "",
+      }));
       filename = "ECN_Tracker";
     } else if (type === "bom") {
       data = BOMService.list();
