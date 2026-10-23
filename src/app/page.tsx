@@ -19,7 +19,9 @@ import {
   ChevronRight,
   Database,
   Calendar,
-  Trash2
+  Trash2,
+  Sun,
+  Moon
 } from "lucide-react";
 
 export default function App() {
@@ -27,6 +29,37 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  // Sync theme with localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("theme") as "dark" | "light" | null;
+      if (saved === "light" || saved === "dark") {
+        setTheme(saved);
+        document.documentElement.setAttribute("data-theme", saved);
+      } else {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    } catch {}
+  }, []);
+
+  const handleThemeChange = (newTheme: "dark" | "light") => {
+    setTheme(newTheme);
+    try {
+      localStorage.setItem("theme", newTheme);
+      document.documentElement.setAttribute("data-theme", newTheme);
+    } catch {}
+  };
+
+  const handleResetTheme = () => {
+    setTheme("dark");
+    try {
+      localStorage.setItem("theme", "dark");
+      document.documentElement.setAttribute("data-theme", "dark");
+    } catch {}
+    setSuccessBanner("Theme reset to default Dark mode.");
+  };
 
   // Core Data Stores
   const [customers, setCustomers] = useState<any[]>([]);
@@ -451,7 +484,7 @@ export default function App() {
         <div>
           <div className="sidebar-header">
             <div className="sidebar-title">
-              <Database size={20} color="#38bdf8" />
+              <Database size={20} color="var(--primary-light)" />
               45 ENGINEERING TRACKER
             </div>
             <div className="sidebar-subtitle">Centralized Automotive System</div>
@@ -472,6 +505,18 @@ export default function App() {
         </div>
 
         <div className="sidebar-footer">
+          <button
+            type="button"
+            className="quick-theme-toggle"
+            onClick={() => handleThemeChange(theme === "dark" ? "light" : "dark")}
+            title="Quick toggle between Dark and Light theme"
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              {theme === "dark" ? <Moon size={14} color="var(--primary-light)" /> : <Sun size={14} color="#f59e0b" />}
+              <span>Theme: <b>{theme === "dark" ? "Dark" : "Light"}</b></span>
+            </span>
+            <span style={{ fontSize: "10px", color: "var(--text-muted)", textDecoration: "underline" }}>Switch</span>
+          </button>
           <div className="footer-user">
             👤 User: <b>Engineer</b>
           </div>
@@ -651,38 +696,38 @@ export default function App() {
               {workloads.map(w => (
                 <div key={w.engineer_id} className="card-panel">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                    <div style={{ fontSize: "16px", fontWeight: 700, color: "#f8fafc" }}>{w.engineer_name}</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>{w.engineer_name}</div>
                     <span className="badge badge-in-progress">{w.open_ecns_count} Open ECNs</span>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "14px" }}>
-                    <div style={{ background: "#0b1120", padding: "10px", borderRadius: "6px", textAlign: "center" }}>
-                      <div style={{ fontSize: "11px", color: "#94a3b8" }}>Upcoming</div>
-                      <div style={{ fontSize: "18px", fontWeight: 700, color: "#38bdf8" }}>{w.upcoming_ecns_count}</div>
+                    <div style={{ background: "var(--bg-input)", border: "1px solid var(--border)", padding: "10px", borderRadius: "6px", textAlign: "center" }}>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Upcoming</div>
+                      <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--primary-light)" }}>{w.upcoming_ecns_count}</div>
                     </div>
-                    <div style={{ background: "#0b1120", padding: "10px", borderRadius: "6px", textAlign: "center" }}>
-                      <div style={{ fontSize: "11px", color: "#94a3b8" }}>Overdue</div>
-                      <div style={{ fontSize: "18px", fontWeight: 700, color: w.overdue_ecns_count > 0 ? "#f87171" : "#34d399" }}>
+                    <div style={{ background: "var(--bg-input)", border: "1px solid var(--border)", padding: "10px", borderRadius: "6px", textAlign: "center" }}>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Overdue</div>
+                      <div style={{ fontSize: "18px", fontWeight: 700, color: w.overdue_ecns_count > 0 ? "var(--danger)" : "var(--success)" }}>
                         {w.overdue_ecns_count}
                       </div>
                     </div>
-                    <div style={{ background: "#0b1120", padding: "10px", borderRadius: "6px", textAlign: "center" }}>
-                      <div style={{ fontSize: "11px", color: "#94a3b8" }}>Completed</div>
-                      <div style={{ fontSize: "18px", fontWeight: 700, color: "#34d399" }}>{w.completed_ecns_count}</div>
+                    <div style={{ background: "var(--bg-input)", border: "1px solid var(--border)", padding: "10px", borderRadius: "6px", textAlign: "center" }}>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Completed</div>
+                      <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--success)" }}>{w.completed_ecns_count}</div>
                     </div>
                   </div>
 
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "#94a3b8", marginBottom: "8px" }}>Assigned Active ECN Tasks:</div>
+                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)", marginBottom: "8px" }}>Assigned Active ECN Tasks:</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                     {w.open_ecns?.length ? (
                       w.open_ecns.map((e: any) => (
-                        <div key={e.id} style={{ background: "#0b1120", padding: "8px 10px", borderRadius: "6px", fontSize: "12px", display: "flex", justifyContent: "space-between" }}>
+                        <div key={e.id} style={{ background: "var(--bg-input)", border: "1px solid var(--border)", padding: "8px 10px", borderRadius: "6px", fontSize: "12px", display: "flex", justifyContent: "space-between" }}>
                           <div>
-                            <b style={{ color: "#38bdf8" }}>{e.ecn_number}</b> — {e.harness_number}
-                            <div style={{ color: "#64748b", fontSize: "11px" }}>{e.model_name} ({e.customer_name})</div>
+                            <b style={{ color: "var(--primary-light)" }}>{e.ecn_number}</b> — {e.harness_number}
+                            <div style={{ color: "var(--text-dim)", fontSize: "11px" }}>{e.model_name} ({e.customer_name})</div>
                           </div>
                           <div style={{ textAlign: "right" }}>
-                            <div style={{ color: e.target_date < new Date().toISOString().split("T")[0] ? "#f87171" : "#cbd5e1" }}>
+                            <div style={{ color: e.target_date < new Date().toISOString().split("T")[0] ? "var(--danger)" : "var(--text-main)" }}>
                               Target: {e.target_date}
                             </div>
                             <span className="badge badge-open">{e.ecn_status}</span>
@@ -690,7 +735,7 @@ export default function App() {
                         </div>
                       ))
                     ) : (
-                      <div style={{ color: "#64748b", fontSize: "12px" }}>No active open assignments.</div>
+                      <div style={{ color: "var(--text-dim)", fontSize: "12px" }}>No active open assignments.</div>
                     )}
                   </div>
                 </div>
@@ -2802,11 +2847,11 @@ export default function App() {
                       <input
                         type="checkbox"
                         id="create_ecn_checkbox"
-                        style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#38bdf8" }}
+                        style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#0284c7" }}
                         checked={Boolean(modalData.create_ecn)}
                         onChange={e => setModalData({ ...modalData, create_ecn: e.target.checked })}
                       />
-                      <label htmlFor="create_ecn_checkbox" style={{ cursor: "pointer", margin: 0, fontWeight: 600, color: "#e2e8f0", fontSize: "13px" }}>
+                      <label htmlFor="create_ecn_checkbox" style={{ cursor: "pointer", margin: 0, fontWeight: 600, color: "var(--text-main)", fontSize: "13px" }}>
                         Create ECN immediately as well? (Autofills ECN Sheet with RFQ data)
                       </label>
                     </div>
@@ -2816,13 +2861,13 @@ export default function App() {
                 {/* FORM: EDIT RFQ */}
                 {modalType === "edit_rfq" && (
                   <>
-                    <div style={{ background: "#0b1120", padding: "10px 14px", borderRadius: "8px", border: "1px solid #1e293b", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", fontWeight: 600 }}>Linked Harness & Model: </span>
-                      <span style={{ color: "#38bdf8", fontWeight: 700 }}>{modalData.harness_part_no || modalData.harness_number || "Harness"}</span>
-                      <span style={{ color: "#94a3b8" }}> | Customer Rev: </span>
-                      <span style={{ color: "#34d399", fontWeight: 700 }}>{modalData.customer_revision || modalData.revision_code || "Rev"}</span>
+                    <div style={{ background: "var(--bg-input)", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Linked Harness & Model: </span>
+                      <span style={{ color: "var(--primary-light)", fontWeight: 700 }}>{modalData.harness_part_no || modalData.harness_number || "Harness"}</span>
+                      <span style={{ color: "var(--text-muted)" }}> | Customer Rev: </span>
+                      <span style={{ color: "var(--success)", fontWeight: 700 }}>{modalData.customer_revision || modalData.revision_code || "Rev"}</span>
                       {(modalData.model || modalData.model_name || modalData.customer_name) && (
-                        <span style={{ color: "#e2e8f0" }}> ({modalData.customer_name ? `${modalData.customer_name} - ` : ""}{modalData.model || modalData.model_name})</span>
+                        <span style={{ color: "var(--text-main)" }}> ({modalData.customer_name ? `${modalData.customer_name} - ` : ""}{modalData.model || modalData.model_name})</span>
                       )}
                     </div>
 
@@ -3548,11 +3593,11 @@ export default function App() {
                 {/* FORM: EDIT ECN */}
                 {modalType === "edit_ecn" && (
                   <>
-                    <div style={{ background: "#0b1120", padding: "10px 14px", borderRadius: "8px", border: "1px solid #1e293b", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", fontWeight: 600 }}>Editing ECN: </span>
-                      <span style={{ color: "#38bdf8", fontWeight: 700 }}>{modalData.ecn_number || "ECN"}</span>
+                    <div style={{ background: "var(--bg-input)", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Editing ECN: </span>
+                      <span style={{ color: "var(--primary-light)", fontWeight: 700 }}>{modalData.ecn_number || "ECN"}</span>
                       {modalData.rfq_no && (
-                        <span style={{ color: "#94a3b8" }}> | Linked RFQ: <span style={{ color: "#34d399", fontWeight: 700 }}>{modalData.rfq_no}</span></span>
+                        <span style={{ color: "var(--text-muted)" }}> | Linked RFQ: <span style={{ color: "var(--success)", fontWeight: 700 }}>{modalData.rfq_no}</span></span>
                       )}
                     </div>
 
@@ -4083,8 +4128,8 @@ export default function App() {
               </button>
             </div>
             <div className="modal-body" style={{ padding: "20px" }}>
-              <p style={{ fontSize: "14px", color: "#f1f5f9", margin: 0, lineHeight: 1.5 }}>
-                Are you sure you want to delete {deleteConfirmTarget.type === "ecn" ? "ECN" : "RFQ"} <span style={{ color: "#38bdf8", fontWeight: 700 }}>{deleteConfirmTarget.targetNum}</span>?
+              <p style={{ fontSize: "14px", color: "var(--text-main)", margin: 0, lineHeight: 1.5 }}>
+                Are you sure you want to delete {deleteConfirmTarget.type === "ecn" ? "ECN" : "RFQ"} <span style={{ color: "var(--primary-light)", fontWeight: 700 }}>{deleteConfirmTarget.targetNum}</span>?
               </p>
             </div>
             <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px" }}>
