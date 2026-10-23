@@ -82,9 +82,14 @@ export async function GET(request: Request) {
       data = KitService.listConsolidated();
       filename = "Consolidated_Active_Kit_List";
     } else if (type === "project_kit") {
-      if (!projectId) throw new Error("project_id required for project kit export.");
-      data = DashboardService.getProjectKitData(Number(projectId));
-      filename = `Project_Kit_List_Project_${projectId}`;
+      const customer = searchParams.get("customer");
+      data = DashboardService.getProjectKitData(
+        projectId ? Number(projectId) : undefined,
+        customer || undefined
+      );
+      filename = customer
+        ? `Project_Kit_Customer_${customer.replace(/[^a-zA-Z0-9_-]/g, "_")}`
+        : (projectId ? `Project_Kit_Project_${projectId}` : `Project_Kit_All_Customers`);
     } else {
       throw new Error("Invalid export type.");
     }

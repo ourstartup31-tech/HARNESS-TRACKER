@@ -17,9 +17,11 @@ next-env.d.ts
 *.db
 *.sqlite
 *.sqlite3
+*.bak
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/*.bak
 
 # Environment files
 .env*.local

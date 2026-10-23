@@ -1463,9 +1463,9 @@ export const DashboardService = {
     });
   },
 
-  getProjectKitData(projectId: number) {
+  getProjectKitData(projectId?: number, customerName?: string) {
     const db = getDb();
-    const rows = db.prepare(`
+    let sql = `
       SELECT 
         h.harness_number as harness,
         c.name as customer,
@@ -1492,9 +1492,18 @@ export const DashboardService = {
       LEFT JOIN engineers eng ON e.primary_engineer_id = eng.id
       LEFT JOIN bom_records b ON b.ecn_id = e.id
       LEFT JOIN consolidated_kits k ON k.ecn_id = e.id
-      WHERE p.id = ?
-      ORDER BY h.harness_number ASC
-    `).all(projectId) as any[];
+    `;
+    const params: any[] = [];
+    if (projectId) {
+      sql += ` WHERE p.id = ?`;
+      params.push(projectId);
+    } else if (customerName && customerName !== "ALL") {
+      sql += ` WHERE LOWER(TRIM(c.name)) = LOWER(TRIM(?))`;
+      params.push(customerName);
+    }
+    sql += ` ORDER BY c.name ASC, p.model_name ASC, h.harness_number ASC`;
+
+    const rows = db.prepare(sql).all(...params) as any[];
 
     return rows.map(r => ({
       ...r,

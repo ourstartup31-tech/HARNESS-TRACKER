@@ -22,10 +22,19 @@ export function getDb(): DatabaseSync {
     dbInstance = new DatabaseSync(DB_PATH);
     dbInstance.exec("PRAGMA foreign_keys = ON;");
     initSchema(dbInstance);
-    seedInitialData(dbInstance);
   }
   return dbInstance;
 }
+
+export function closeDb() {
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+    } catch {}
+    dbInstance = null;
+  }
+}
+
 
 function initSchema(db: DatabaseSync) {
   db.exec(`
@@ -588,115 +597,4 @@ function initSchema(db: DatabaseSync) {
   } catch (err) {
     console.warn("Notice: could not auto-sync ecn metadata:", err);
   }
-}
-
-function seedInitialData(db: DatabaseSync) {
-  const row = db.prepare("SELECT COUNT(*) as count FROM customers").get() as { count: number };
-  if (row.count > 0) return;
-
-  // 1. Customers
-  db.exec(`
-    INSERT INTO customers (name) VALUES 
-      ('Tata Motors'),
-      ('Mahindra & Mahindra'),
-      ('Maruti Suzuki'),
-      ('Stellantis');
-    
-    INSERT INTO engineers (name) VALUES
-      ('Rajesh Sharma'),
-      ('Priya Nair'),
-      ('Amit Verma'),
-      ('Kavita Iyer'),
-      ('Marcus Vance');
-
-    -- Projects
-    INSERT INTO projects (customer_id, model_name) VALUES
-      (1, 'Nexon-EV'),
-      (1, 'Curvv-EV'),
-      (2, 'Scorpio-N'),
-      (3, 'Brezza'),
-      (4, 'Compass-2027');
-
-    -- Harnesses
-    INSERT INTO harnesses (project_id, harness_number) VALUES
-      (1, 'HARN-NXN-MAIN-01'),
-      (1, 'HARN-NXN-DOOR-01'),
-      (3, 'HARN-SCP-ENG-01'),
-      (4, 'HARN-BRZ-FLOOR-01'),
-      (5, 'HARN-CMP-01');
-
-    -- Revisions
-    INSERT INTO revisions (harness_id, revision_code, sop_number, volume, circuit_count, status) VALUES
-      (1, 'A', 'SOP-NXN-001', 12000, 84, 'Obsolete'),
-      (1, 'B', 'SOP-NXN-002', 14500, 88, 'Active'),
-      (2, 'A', 'SOP-NXN-003', 12000, 18, 'Active'),
-      (3, '01', 'SOP-SCP-101', 8000, 110, 'Active'),
-      (4, '01', 'SOP-BRZ-01', 12000, 45, 'Active'),
-      (5, 'A', 'SOP-CMP-01', 5000, 30, 'Active');
-
-    -- RFQs
-    INSERT INTO rfqs (
-      rfq_number, harness_id, revision_id, marketing_input_date, design_input_date,
-      work_start_date, target_date, costing_bom_submitted_date,
-      query_yes_no, query_submitted_date, reply_received_date, query_status, query_remark,
-      proposal_yes_no, proposal_submitted_date, proposal_status, overall_rfq_status
-    ) VALUES (
-      'RFQ-2026-0001', 1, 2, '2026-01-10', '2026-01-12', '2026-01-15', '2026-01-25', '2026-01-26',
-      1, '2026-01-18', '2026-01-20', 'Resolved', 'Terminal plating confirmed with marketing.',
-      1, '2026-01-28', 'Submitted', 'Submitted'
-    ), (
-      'RFQ-2026-0002', 3, 4, '2026-02-01', '2026-02-03', '2026-02-05', '2026-02-20', NULL,
-      0, NULL, NULL, 'Open', NULL,
-      0, NULL, 'Pending', 'In Progress'
-    );
-
-    -- ECNs
-    INSERT INTO ecns (
-      ecn_number, harness_id, source_revision_id, stage_context, development_type,
-      change_reason, revision_impact, new_revision_id, costing_required, rfq_id,
-      primary_engineer_id, support_engineer_id, design_input_date, work_start_date,
-      target_date, min_meeting_date, completion_date, ecn_status, delay_reason
-    ) VALUES (
-      'ECN-2026-0001', 1, 1, 'Production', 'New Development',
-      'Add DC fast-charging sensor junction and increase high-voltage grounding gauge.',
-      'New Revision', 2, 1, 1,
-      1, 2, '2026-01-12', '2026-01-16',
-      '2026-02-02', '2026-02-05', '2026-02-05', 'Completed',
-      'Awaiting customer fast-charger mating connector sample.'
-    ), (
-      'ECN-2026-0002', 3, 4, 'Sample', 'New Development',
-      'Initial sample harness prototype layout and fuse box pinouts.',
-      'Same Revision', NULL, 0, NULL,
-      3, 4, '2026-02-05', '2026-02-10',
-      '2026-02-28', NULL, NULL, 'In Progress',
-      NULL
-    );
-
-    -- BOM Records
-    INSERT INTO bom_records (
-      fg_code, bom_alternate, customer_part_number, customer_revision, fg_revision,
-      ecn_id, uploaded_by_id, upload_date, release_date
-    ) VALUES (
-      'FG-NXN-MAIN-901', '01', '28400-NXN-0100', 'B', 'BA',
-      1, 1, '2026-01-30', '2026-02-02'
-    );
-
-    -- Label Upload
-    INSERT INTO label_uploads (
-      bom_id, fg_code, bom_alternate, uploaded_by_id, upload_date, reason
-    ) VALUES (
-      1, 'FG-NXN-MAIN-901', '01', 1, '2026-02-04', 'Initial high-temp adhesive bar code label approved.'
-    );
-
-    -- MIN Meeting
-    INSERT INTO min_meetings (ecn_id, meeting_date, remarks) VALUES
-      (1, '2026-02-05', 'All 88 circuits verified and approved for sample build.');
-
-    -- Consolidated Kit Entry
-    INSERT INTO consolidated_kits (
-      ecn_id, rack_number, file_number, hard_copy_location, status
-    ) VALUES (
-      1, 'RACK-EV-02', 'FILE-NXN-88', 'Master Archive Cabinets, Tier 3', 'Active'
-    );
-  `);
 }

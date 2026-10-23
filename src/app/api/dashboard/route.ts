@@ -8,8 +8,11 @@ export async function GET(request: Request) {
     const mode = searchParams.get("mode");
 
     if (mode === "project_kit") {
-      if (!projectId) throw new Error("project_id required for project kit data.");
-      const kitData = DashboardService.getProjectKitData(Number(projectId));
+      const customer = searchParams.get("customer");
+      const kitData = DashboardService.getProjectKitData(
+        projectId ? Number(projectId) : undefined,
+        customer || undefined
+      );
       return NextResponse.json({ success: true, data: kitData });
     }
 

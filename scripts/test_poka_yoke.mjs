@@ -890,3 +890,16 @@ test("MIN MEETING & CONSOLIDATED KIT PREREQUISITE", async (t) => {
     assert.equal(entry.file_number, "F-01");
   });
 });
+
+// Clean up isolated test database after all tests complete
+try {
+  const { closeDb } = await import("../src/lib/db.ts");
+  closeDb();
+  if (fs.existsSync(TEST_DB)) {
+    fs.unlinkSync(TEST_DB);
+  }
+} catch (e) {
+  // Ignore if already deleted
+}
+
+

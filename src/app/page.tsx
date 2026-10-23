@@ -21,7 +21,13 @@ import {
   Calendar,
   Trash2,
   Sun,
-  Moon
+  Moon,
+  Search,
+  Eye,
+  ArrowLeft,
+  ArrowRight,
+  Layers,
+  FileText
 } from "lucide-react";
 
 export default function App() {
@@ -79,6 +85,9 @@ export default function App() {
   // Filter selections
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedEngineerId, setSelectedEngineerId] = useState<string>("");
+  const [selectedCustomer, setSelectedCustomer] = useState<string>("ALL");
+  const [customerKitTab, setCustomerKitTab] = useState<"rfqs" | "ecns" | "kits" | "activity">("rfqs");
+  const [customerSearchTerm, setCustomerSearchTerm] = useState<string>("");
 
   // Modal Dialog states
   const [modalType, setModalType] = useState<string | null>(null);
@@ -131,10 +140,14 @@ export default function App() {
       if (dashRes.data) setDashboardMetrics(dashRes.data);
       if (workRes.data) setWorkloads(workRes.data);
 
+      let pkUrl = `/api/dashboard?mode=project_kit`;
       if (selectedProjectId) {
-        const pkRes = await fetch(`/api/dashboard?mode=project_kit&project_id=${selectedProjectId}`).then(r => r.json());
-        if (pkRes.data) setProjectKitRows(pkRes.data);
+        pkUrl += `&project_id=${selectedProjectId}`;
+      } else if (selectedCustomer && selectedCustomer !== "ALL") {
+        pkUrl += `&customer=${encodeURIComponent(selectedCustomer)}`;
       }
+      const pkRes = await fetch(pkUrl).then(r => r.json());
+      if (pkRes.data) setProjectKitRows(pkRes.data);
     } catch (err: any) {
       setErrorBanner("Failed to connect to database: " + err.message);
     } finally {
@@ -144,7 +157,7 @@ export default function App() {
 
   useEffect(() => {
     refreshAll();
-  }, [selectedProjectId, selectedEngineerId]);
+  }, [selectedProjectId, selectedEngineerId, selectedCustomer]);
 
   // Ensure clicking anywhere on any date input box triggers the calendar picker
   useEffect(() => {
@@ -164,11 +177,11 @@ export default function App() {
   const handleExport = (type: string, format: "xlsx" | "csv" = "xlsx") => {
     let url = `/api/export?type=${type}&format=${format}`;
     if (type === "project_kit") {
-      if (!selectedProjectId) {
-        alert("Please select a project to export its kit list.");
-        return;
+      if (selectedProjectId) {
+        url += `&project_id=${selectedProjectId}`;
+      } else if (selectedCustomer && selectedCustomer !== "ALL") {
+        url += `&customer=${encodeURIComponent(selectedCustomer)}`;
       }
-      url += `&project_id=${selectedProjectId}`;
     }
     window.open(url, "_blank");
   };
@@ -465,6 +478,54 @@ export default function App() {
       setErrorBanner(err.message);
     }
   };
+
+  // Unique sorted list of customers across Master data, RFQs, ECNs, and Projects
+  const uniqueCustomerList = React.useMemo(() => {
+    const set = new Set<string>();
+    customers.forEach(c => { if (c.name?.trim()) set.add(c.name.trim()); });
+    rfqs.forEach(r => { if (r.customer_name?.trim()) set.add(r.customer_name.trim()); });
+    ecns.forEach(e => { if (e.customer_name?.trim()) set.add(e.customer_name.trim()); });
+    projects.forEach(p => { if (p.customer_name?.trim()) set.add(p.customer_name.trim()); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [customers, rfqs, ecns, projects]);
+
+  const customerStatsMap = React.useMemo(() => {
+    const map: Record<string, {
+      rfqs: any[];
+      openRfqs: number;
+      closedRfqs: number;
+      ecns: any[];
+      openEcns: number;
+      closedEcns: number;
+      linkedEcns: number;
+      directEcns: number;
+      projects: any[];
+      kits: any[];
+    }> = {};
+
+    uniqueCustomerList.forEach(cName => {
+      const cLower = cName.toLowerCase();
+      const cRfqs = rfqs.filter(r => (r.customer_name || "").trim().toLowerCase() === cLower && !r.is_deleted);
+      const cEcns = ecns.filter(e => (e.customer_name || "").trim().toLowerCase() === cLower && !e.is_deleted);
+      const cProjs = projects.filter(p => (p.customer_name || "").trim().toLowerCase() === cLower);
+      const cKits = projectKitRows.filter(k => (k.customer || "").trim().toLowerCase() === cLower);
+
+      map[cName] = {
+        rfqs: cRfqs,
+        openRfqs: cRfqs.filter(r => (r.overall_rfq_status || "").toLowerCase() !== "close" && (r.overall_rfq_status || "").toLowerCase() !== "closed").length,
+        closedRfqs: cRfqs.filter(r => (r.overall_rfq_status || "").toLowerCase() === "close" || (r.overall_rfq_status || "").toLowerCase() === "closed").length,
+        ecns: cEcns,
+        openEcns: cEcns.filter(e => (e.overall_status || "").toLowerCase() !== "close" && (e.overall_status || "").toLowerCase() !== "closed").length,
+        closedEcns: cEcns.filter(e => (e.overall_status || "").toLowerCase() === "close" || (e.overall_status || "").toLowerCase() === "closed").length,
+        linkedEcns: cEcns.filter(e => e.rfq_no && e.rfq_no.trim() !== "").length,
+        directEcns: cEcns.filter(e => !e.rfq_no || e.rfq_no.trim() === "").length,
+        projects: cProjs,
+        kits: cKits,
+      };
+    });
+
+    return map;
+  }, [uniqueCustomerList, rfqs, ecns, projects, projectKitRows]);
 
   const navItems = [
     { label: "Project Dashboard", icon: <LayoutDashboard size={18} /> },
@@ -1979,87 +2040,575 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 6: PROJECT KIT LIST */}
+        {/* TAB 6: PROJECT KIT LIST — CUSTOMER & PROJECT TRACKING */}
         {activeTab === 6 && (
           <div>
+            {/* Header Bar */}
             <div className="page-header-bar">
               <div>
-                <h1 className="page-title">Individual Project / Model Kit List</h1>
-                <p className="page-subtitle">Unified project lifecycle aggregator across RFQs, ECNs, Revisions, BOMs, and Kit locations</p>
+                <h1 className="page-title">Project Kit List</h1>
+                <p className="page-subtitle">
+                  Customer-wise engineering tracking: RFQ records, ECN changes, and hardware kit list
+                </p>
               </div>
               <div className="header-actions">
                 <select
-                  value={selectedProjectId}
-                  onChange={e => setSelectedProjectId(e.target.value)}
+                  value={selectedCustomer}
+                  onChange={e => {
+                    setSelectedCustomer(e.target.value);
+                    setSelectedProjectId("");
+                  }}
                   style={{ minWidth: "220px" }}
                 >
-                  <option value="">Select Model / Project...</option>
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.customer_name} — {p.model_name}</option>
+                  <option value="">-- Select Customer --</option>
+                  <option value="ALL">All Customers Consolidated</option>
+                  {uniqueCustomerList.map(cName => (
+                    <option key={cName} value={cName}>
+                      {cName}
+                    </option>
                   ))}
                 </select>
+
+                {selectedCustomer && selectedCustomer !== "ALL" && (
+                  <select
+                    value={selectedProjectId}
+                    onChange={e => setSelectedProjectId(e.target.value)}
+                    style={{ minWidth: "180px" }}
+                  >
+                    <option value="">All Models ({selectedCustomer})</option>
+                    {projects
+                      .filter(p => (p.customer_name || "").toLowerCase() === selectedCustomer.toLowerCase())
+                      .map(p => (
+                        <option key={p.id} value={p.id}>{p.model_name}</option>
+                      ))}
+                  </select>
+                )}
+
                 <button className="btn btn-outline" onClick={() => handleExport("project_kit", "xlsx")}>
-                  <Download size={15} /> Export Project Kit
+                  <Download size={15} /> Export
                 </button>
               </div>
             </div>
 
-            <div className="card-panel">
-              {selectedProjectId ? (
-                <div className="table-container">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Harness</th>
-                        <th>Rev</th>
-                        <th>SOP Number</th>
-                        <th>Volume</th>
-                        <th>Circuits</th>
-                        <th>ECN Number</th>
-                        <th>Stage Context</th>
-                        <th>Engineer</th>
-                        <th>BOM FG & Alt</th>
-                        <th>BOM Status</th>
-                        <th>Label Status</th>
-                        <th>MIN Date</th>
-                        <th>Rack / File</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {projectKitRows.map((r, i) => (
-                        <tr key={i}>
-                          <td style={{ fontWeight: 600, color: "#38bdf8" }}>{r.harness}</td>
-                          <td>{r.revision ? <span className="badge badge-active">{r.revision}</span> : "-"}</td>
-                          <td>{r.sop_number || "-"}</td>
-                          <td>{r.volume ? Number(r.volume).toLocaleString() : "-"}</td>
-                          <td>{r.circuit_count || "-"}</td>
-                          <td>{r.ecn_number || "-"}</td>
-                          <td>{r.stage_context ? <span className="badge badge-in-progress">{r.stage_context}</span> : "-"}</td>
-                          <td>{r.primary_engineer || "-"}</td>
-                          <td>{r.bom_fg ? `${r.bom_fg} (${r.bom_alternate})` : "-"}</td>
-                          <td>
-                            <span className={`badge ${r.bom_status === "Released" ? "badge-released" : "badge-open"}`}>
-                              {r.bom_status}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={`badge ${r.label_status === "Uploaded" ? "badge-completed" : "badge-delayed"}`}>
-                              {r.label_status}
-                            </span>
-                          </td>
-                          <td>{r.min_meeting_date ? <span style={{ color: "#34d399" }}>{r.min_meeting_date}</span> : "-"}</td>
-                          <td>{r.rack_number} / {r.file_number}</td>
+            {/* If a customer is selected (or "ALL"), show clean 3-Tab Switcher & Tables */}
+            {selectedCustomer ? (
+              <div>
+                {/* Clean Customer Status Bar */}
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  padding: "12px 16px",
+                  marginBottom: "16px",
+                  flexWrap: "wrap",
+                  gap: "12px"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>
+                      {selectedCustomer === "ALL" ? "Consolidated Overview — All Customers" : selectedCustomer}
+                    </span>
+                    {selectedCustomer !== "ALL" && (
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        style={{ padding: "2px 8px", fontSize: "11px" }}
+                        onClick={() => setSelectedCustomer("")}
+                      >
+                        Change Customer
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 3 Flat Sheet Buttons */}
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      type="button"
+                      className={`btn ${customerKitTab === "rfqs" ? "" : "btn-outline"}`}
+                      style={{ padding: "6px 14px", fontSize: "12px" }}
+                      onClick={() => setCustomerKitTab("rfqs")}
+                    >
+                      <FileSpreadsheet size={14} />
+                      <span>RFQ Sheet ({
+                        rfqs.filter(r => !r.is_deleted && (selectedCustomer === "ALL" || (r.customer_name || "").toLowerCase() === selectedCustomer.toLowerCase())).length
+                      })</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${customerKitTab === "ecns" ? "" : "btn-outline"}`}
+                      style={{ padding: "6px 14px", fontSize: "12px" }}
+                      onClick={() => setCustomerKitTab("ecns")}
+                    >
+                      <RefreshCw size={14} />
+                      <span>ECN Sheet ({
+                        ecns.filter(e => !e.is_deleted && (selectedCustomer === "ALL" || (e.customer_name || "").toLowerCase() === selectedCustomer.toLowerCase())).length
+                      })</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${customerKitTab === "kits" ? "" : "btn-outline"}`}
+                      style={{ padding: "6px 14px", fontSize: "12px" }}
+                      onClick={() => setCustomerKitTab("kits")}
+                    >
+                      <Files size={14} />
+                      <span>Kit List ({
+                        projectKitRows.filter(k => selectedCustomer === "ALL" || (k.customer || "").toLowerCase() === selectedCustomer.toLowerCase()).length
+                      })</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* SHEET 1: RFQ TRACKER SHEET */}
+                {customerKitTab === "rfqs" && (
+                  <div className="card-panel">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-main)" }}>
+                        RFQ Tracker — {selectedCustomer === "ALL" ? "All Customers" : selectedCustomer}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: "4px 10px", fontSize: "12px" }}
+                        onClick={() => {
+                          setModalType("new_rfq");
+                          setModalData({ customer_name: selectedCustomer !== "ALL" ? selectedCustomer : "" });
+                        }}
+                      >
+                        <Plus size={14} /> New RFQ
+                      </button>
+                    </div>
+
+                    {(() => {
+                      const curRfqs = rfqs.filter(r =>
+                        !r.is_deleted &&
+                        (selectedCustomer === "ALL" || (r.customer_name || "").toLowerCase() === selectedCustomer.toLowerCase()) &&
+                        (!selectedProjectId || (projects.find(p => String(p.id) === String(selectedProjectId))?.model_name === r.model))
+                      );
+
+                      return curRfqs.length > 0 ? (
+                        <div className="table-container">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th className="sticky-col">RFQ No.</th>
+                                <th>Customer Name</th>
+                                <th>Drawing No.</th>
+                                <th>Model Name</th>
+                                <th>Unique RFQ No.</th>
+                                <th>No. of Ckt</th>
+                                <th>Volume</th>
+                                <th>Query Status</th>
+                                <th>Unique Status</th>
+                                <th>Costing BOM Status</th>
+                                <th>Overall Status</th>
+                                <th>Start Date</th>
+                                <th>Target Date</th>
+                                <th>Actual Date</th>
+                                <th>Review Note</th>
+                                <th>Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {curRfqs.map((r, i) => (
+                                <tr key={r.id || i}>
+                                  <td className="sticky-col" style={{ fontWeight: 700, color: "var(--primary-light)" }}>
+                                    {r.rfq_number}
+                                  </td>
+                                  <td>{r.customer_name || "—"}</td>
+                                  <td>{r.drawing_number || "—"}</td>
+                                  <td>{r.model || "—"}</td>
+                                  <td>{r.unique_rfq_no || "—"}</td>
+                                  <td>{r.no_of_ckt ?? "—"}</td>
+                                  <td>{r.volume ? Number(r.volume).toLocaleString() : "—"}</td>
+                                  <td>
+                                    <span className={`badge ${
+                                      (r.query_status || "").toLowerCase() === "close" || (r.query_status || "").toLowerCase() === "closed"
+                                        ? "badge-completed"
+                                        : "badge-open"
+                                    }`}>
+                                      {r.query_status || "Open"}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`badge ${
+                                      (r.unique_status || "").toLowerCase() === "close" || (r.unique_status || "").toLowerCase() === "closed"
+                                        ? "badge-completed"
+                                        : "badge-open"
+                                    }`}>
+                                      {r.unique_status || "Open"}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`badge ${
+                                      (r.costing_bom_status || "").toLowerCase() === "close" || (r.costing_bom_status || "").toLowerCase() === "closed"
+                                        ? "badge-completed"
+                                        : "badge-open"
+                                    }`}>
+                                      {r.costing_bom_status || "Open"}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`badge ${
+                                      (r.overall_rfq_status || "").toLowerCase() === "close" || (r.overall_rfq_status || "").toLowerCase() === "closed"
+                                        ? "badge-completed"
+                                        : "badge-in-progress"
+                                    }`}>
+                                      {r.overall_rfq_status || "Open"}
+                                    </span>
+                                  </td>
+                                  <td>{r.work_start_date || "—"}</td>
+                                  <td>{r.target_date || "—"}</td>
+                                  <td>{r.completion_date || "—"}</td>
+                                  <td style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.review_note || ""}>
+                                    {r.review_note || "—"}
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="btn btn-outline"
+                                      style={{ padding: "3px 8px", fontSize: "11px" }}
+                                      onClick={() => {
+                                        setModalType("edit_rfq");
+                                        setModalData(r);
+                                      }}
+                                    >
+                                      Edit
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)" }}>
+                          No RFQ records found for {selectedCustomer === "ALL" ? "any customer" : selectedCustomer}.
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* SHEET 2: ECN TRACKER SHEET */}
+                {customerKitTab === "ecns" && (
+                  <div className="card-panel">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-main)" }}>
+                        ECN Tracker — {selectedCustomer === "ALL" ? "All Customers" : selectedCustomer}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: "4px 10px", fontSize: "12px" }}
+                        onClick={() => {
+                          setModalType("new_ecn");
+                          setModalData({ customer_name: selectedCustomer !== "ALL" ? selectedCustomer : "" });
+                        }}
+                      >
+                        <Plus size={14} /> New ECN
+                      </button>
+                    </div>
+
+                    {(() => {
+                      const curEcns = ecns.filter(e =>
+                        !e.is_deleted &&
+                        (selectedCustomer === "ALL" || (e.customer_name || "").toLowerCase() === selectedCustomer.toLowerCase()) &&
+                        (!selectedProjectId || (projects.find(p => String(p.id) === String(selectedProjectId))?.model_name === e.model_name))
+                      );
+
+                      return curEcns.length > 0 ? (
+                        <div className="table-container">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th className="sticky-col">ECN No.</th>
+                                <th>Linked RFQ No.</th>
+                                <th>Stage</th>
+                                <th>Customer Name</th>
+                                <th>Model Name</th>
+                                <th>Query Status</th>
+                                <th>Unique Status</th>
+                                <th>SAP BOM Released</th>
+                                <th>PRD BOM Release</th>
+                                <th>Label Upload Date</th>
+                                <th>MIN Status & Date</th>
+                                <th>Overall Status</th>
+                                <th>No. of Ckt</th>
+                                <th>Volume</th>
+                                <th>Start Date</th>
+                                <th>Target Date</th>
+                                <th>Actual Date</th>
+                                <th>Review</th>
+                                <th>Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {curEcns.map((e, i) => (
+                                <tr key={e.id || i}>
+                                  <td className="sticky-col" style={{ fontWeight: 700, color: "#34d399" }}>
+                                    {e.ecn_number}
+                                  </td>
+                                  <td>
+                                    {e.rfq_no ? (
+                                      <span style={{ fontWeight: 600, color: "var(--primary-light)" }}>
+                                        {e.rfq_no}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>Without RFQ</span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span className="badge badge-active" style={{ textTransform: "capitalize" }}>
+                                      {e.stage || "sample"}
+                                    </span>
+                                  </td>
+                                  <td>{e.customer_name || "—"}</td>
+                                  <td>{e.model_name || "—"}</td>
+                                  <td>
+                                    <span className={`badge ${
+                                      (e.query_status || "").toLowerCase() === "close" || (e.query_status || "").toLowerCase() === "closed"
+                                        ? "badge-completed"
+                                        : "badge-open"
+                                    }`}>
+                                      {e.query_status || "Open"}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`badge ${
+                                      (e.unique_status || "").toLowerCase() === "close" || (e.unique_status || "").toLowerCase() === "closed"
+                                        ? "badge-completed"
+                                        : "badge-open"
+                                    }`}>
+                                      {e.unique_status || "Open"}
+                                    </span>
+                                  </td>
+                                  <td>{e.sap_bom_released_date || "—"}</td>
+                                  <td>{e.prd_bom_release_date || "—"}</td>
+                                  <td>{e.label_upload_date || "—"}</td>
+                                  <td>
+                                    <span className={`badge ${
+                                      (e.min_status || "").toLowerCase() === "close" || (e.min_status || "").toLowerCase() === "closed"
+                                        ? "badge-completed"
+                                        : "badge-open"
+                                    }`}>
+                                      {e.min_status || "Open"}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`badge ${
+                                      (e.overall_status || "").toLowerCase() === "close" || (e.overall_status || "").toLowerCase() === "closed"
+                                        ? "badge-completed"
+                                        : "badge-in-progress"
+                                    }`}>
+                                      {e.overall_status || "Open"}
+                                    </span>
+                                  </td>
+                                  <td>{e.no_of_ckt ?? "—"}</td>
+                                  <td>{e.volume ? Number(e.volume).toLocaleString() : "—"}</td>
+                                  <td>{e.work_start_date || "—"}</td>
+                                  <td>{e.target_date || "—"}</td>
+                                  <td>{e.completion_date || e.actual_date || "—"}</td>
+                                  <td style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.review || ""}>
+                                    {e.review || "—"}
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="btn btn-outline"
+                                      style={{ padding: "3px 8px", fontSize: "11px" }}
+                                      onClick={() => {
+                                        setModalType("edit_ecn");
+                                        setModalData(e);
+                                      }}
+                                    >
+                                      Edit
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)" }}>
+                          No ECN records found for {selectedCustomer === "ALL" ? "any customer" : selectedCustomer}.
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* SHEET 3: KIT LIST */}
+                {customerKitTab === "kits" && (
+                  <div className="card-panel">
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-main)", marginBottom: "12px" }}>
+                      Project Kit & Hardware Locations — {selectedCustomer === "ALL" ? "All Customers" : selectedCustomer}
+                    </div>
+
+                    {(() => {
+                      const curKits = projectKitRows.filter(k =>
+                        (selectedCustomer === "ALL" || (k.customer || "").toLowerCase() === selectedCustomer.toLowerCase()) &&
+                        (!selectedProjectId || (projects.find(p => String(p.id) === String(selectedProjectId))?.model_name === k.model))
+                      );
+
+                      return curKits.length > 0 ? (
+                        <div className="table-container">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Customer Name</th>
+                                <th>Model Name</th>
+                                <th>Harness</th>
+                                <th>Rev</th>
+                                <th>SOP Number</th>
+                                <th>Volume</th>
+                                <th>Circuits</th>
+                                <th>ECN Number</th>
+                                <th>Stage Context</th>
+                                <th>Engineer</th>
+                                <th>BOM FG & Alt</th>
+                                <th>BOM Status</th>
+                                <th>Label Status</th>
+                                <th>MIN Date</th>
+                                <th>Rack / File</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {curKits.map((r, i) => (
+                                <tr key={i}>
+                                  <td>{r.customer || "—"}</td>
+                                  <td style={{ fontWeight: 600 }}>{r.model || "—"}</td>
+                                  <td style={{ fontWeight: 600, color: "#38bdf8" }}>{r.harness}</td>
+                                  <td>{r.revision ? <span className="badge badge-active">{r.revision}</span> : "—"}</td>
+                                  <td>{r.sop_number || "—"}</td>
+                                  <td>{r.volume ? Number(r.volume).toLocaleString() : "—"}</td>
+                                  <td>{r.circuit_count || "—"}</td>
+                                  <td>{r.ecn_number || "—"}</td>
+                                  <td>{r.stage_context ? <span className="badge badge-in-progress">{r.stage_context}</span> : "—"}</td>
+                                  <td>{r.primary_engineer || "—"}</td>
+                                  <td>{r.bom_fg ? `${r.bom_fg} (${r.bom_alternate})` : "—"}</td>
+                                  <td>
+                                    <span className={`badge ${r.bom_status === "Released" ? "badge-released" : "badge-open"}`}>
+                                      {r.bom_status}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`badge ${r.label_status === "Uploaded" ? "badge-completed" : "badge-delayed"}`}>
+                                      {r.label_status}
+                                    </span>
+                                  </td>
+                                  <td>{r.min_meeting_date ? <span style={{ color: "#34d399" }}>{r.min_meeting_date}</span> : "—"}</td>
+                                  <td>{r.rack_number} / {r.file_number}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)" }}>
+                          No kit records found for {selectedCustomer === "ALL" ? "any customer" : selectedCustomer}.
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* When no customer is selected yet, show a clean, simple Customers List Table */
+              <div className="card-panel">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>
+                      Customer Portfolios
+                    </h3>
+                    <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "var(--text-muted)" }}>
+                      Select a customer to view their complete RFQ, ECN, and Project Kit tracking sheet
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => { setModalType("new_customer"); setModalData({}); }}
+                  >
+                    <Plus size={15} /> Add Customer
+                  </button>
+                </div>
+
+                {uniqueCustomerList.length > 0 ? (
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Customer Name</th>
+                          <th>Total RFQs</th>
+                          <th>Total ECNs</th>
+                          <th>Associated Models</th>
+                          <th>Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div style={{ textAlign: "center", padding: "40px", color: "#94a3b8" }}>
-                  Please select a Project/Model above to load its consolidated engineering kit view.
-                </div>
-              )}
-            </div>
+                      </thead>
+                      <tbody>
+                        {uniqueCustomerList.map((cName, idx) => {
+                          const cRfqs = rfqs.filter(r => !r.is_deleted && (r.customer_name || "").toLowerCase() === cName.toLowerCase());
+                          const cEcns = ecns.filter(e => !e.is_deleted && (e.customer_name || "").toLowerCase() === cName.toLowerCase());
+                          const cModels = Array.from(new Set([
+                            ...projects.filter(p => (p.customer_name || "").toLowerCase() === cName.toLowerCase()).map(p => p.model_name),
+                            ...cRfqs.map(r => r.model).filter(Boolean),
+                            ...cEcns.map(e => e.model_name).filter(Boolean)
+                          ]));
+
+                          return (
+                            <tr key={idx}>
+                              <td style={{ fontWeight: 700, color: "var(--text-main)" }}>
+                                {cName}
+                              </td>
+                              <td>
+                                <span style={{ fontWeight: 600, color: "var(--primary-light)" }}>
+                                  {cRfqs.length} RFQ{cRfqs.length === 1 ? "" : "s"}
+                                </span>
+                              </td>
+                              <td>
+                                <span style={{ fontWeight: 600, color: "#34d399" }}>
+                                  {cEcns.length} ECN{cEcns.length === 1 ? "" : "s"}
+                                </span>
+                              </td>
+                              <td>
+                                {cModels.length > 0 ? (
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                                    {cModels.map((m, mi) => (
+                                      <span key={mi} className="badge badge-active" style={{ fontSize: "11px" }}>
+                                        {m}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>—</span>
+                                )}
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="btn btn-outline"
+                                  style={{ padding: "4px 10px", fontSize: "11px" }}
+                                  onClick={() => setSelectedCustomer(cName)}
+                                >
+                                  View Track →
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)" }}>
+                    No customer records exist yet. Click "+ Add Customer" above to create your first customer.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -2246,7 +2795,7 @@ export default function App() {
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Tata Motors"
+                      placeholder="Enter Customer Name"
                       value={modalData.name || ""}
                       onChange={e => setModalData({ ...modalData, name: e.target.value })}
                     />
@@ -2260,7 +2809,7 @@ export default function App() {
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Amit Verma"
+                      placeholder="Enter Engineer Name"
                       value={modalData.name || ""}
                       onChange={e => setModalData({ ...modalData, name: e.target.value })}
                     />
@@ -2288,7 +2837,7 @@ export default function App() {
                       <input
                         type="text"
                         required
-                        placeholder="e.g. Nexon-EV"
+                        placeholder="Enter Model / Project Name"
                         value={modalData.model_name || ""}
                         onChange={e => setModalData({ ...modalData, model_name: e.target.value })}
                       />
@@ -2317,7 +2866,7 @@ export default function App() {
                       <input
                         type="text"
                         required
-                        placeholder="e.g. HARN-NXN-MAIN-01"
+                        placeholder="Enter Harness Number (e.g. HARN-001)"
                         value={modalData.harness_number || ""}
                         onChange={e => setModalData({ ...modalData, harness_number: e.target.value.toUpperCase() })}
                       />
