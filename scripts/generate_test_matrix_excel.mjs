@@ -7,6 +7,27 @@ if (!fs.existsSync(docsDir)) {
   fs.mkdirSync(docsDir, { recursive: true });
 }
 
+// Load environment variables from .env.local or .env
+for (const envName of [".env.local", ".env"]) {
+  const envPath = path.join(process.cwd(), envName);
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, "utf-8").split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#")) {
+        const eqIdx = trimmed.indexOf("=");
+        if (eqIdx !== -1) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
+          if (!process.env[key]) {
+            process.env[key] = val;
+          }
+        }
+      }
+    }
+  }
+}
+
 const testFile = path.join(process.cwd(), "scripts", "test_poka_yoke.mjs");
 const currentDate = new Date().toISOString().split("T")[0];
 
@@ -615,4 +636,47 @@ console.log(`- Total Scenarios: ${scenarios.length}`);
 console.log(`- XLSX: ${xlsxPath}`);
 console.log(`- XLS:  ${xlsPath}`);
 console.log(`- MD:   ${mdPath}`);
-console.log(`- Last Synchronized Date: ${currentDate}\n`);
+console.log(`- Last Synchronized Date: ${currentDate}`);
+
+// Sync to live Google Sheet if Webhook URL is provided
+const googleWebhook = process.env.GOOGLE_SHEET_WEBHOOK_URL;
+if (googleWebhook) {
+  try {
+    console.log("📡 Syncing directly to Google Sheet (gid=570024134)...");
+    const gRows = [
+      ["ID", "Module", "Priority", "Scenario", "Steps", "Expected result", "Status", "Tested on", "Bug / evidence link"],
+      ...scenarios.map(s => [
+        s.id,
+        s.module,
+        s.priority,
+        s.scenario,
+        s.steps,
+        s.expected,
+        s.status,
+        s.tested_on,
+        s.bug_link || ""
+      ])
+    ];
+
+    const response = await fetch(googleWebhook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sheetGid: "570024134",
+        rows: gRows
+      })
+    });
+
+    const resJson = await response.json();
+    if (resJson.success) {
+      console.log(`🌐 Google Sheet Updated: Successfully synced ${resJson.updated_rows} rows directly to live Google Sheet!\n`);
+    } else {
+      console.warn("⚠️ Google Sheet Webhook returned response:", resJson);
+    }
+  } catch (err) {
+    console.warn("⚠️ Could not sync to Google Sheet:", err.message);
+  }
+} else {
+  console.log("ℹ️  Tip: To sync directly to your live Google Sheet on every run, add GOOGLE_SHEET_WEBHOOK_URL to .env.local (see docs/GOOGLE_SHEETS_SYNC.md)\n");
+}
+
