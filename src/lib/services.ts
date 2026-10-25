@@ -362,11 +362,25 @@ export const RFQService = {
     const targetDate = data.target_date || null;
     const actualDate = data.completion_date || data.actual_date || null;
 
-    if (startDate && targetDate && targetDate <= startDate) {
-      throw new Error(`Target Date (${targetDate}) must be greater than Start Date (${startDate}).`);
+    if (startDate && targetDate && targetDate < startDate) {
+      throw new Error(`Target Date (${targetDate}) cannot be earlier than Start Date (${startDate}).`);
     }
-    if (startDate && actualDate && actualDate <= startDate) {
-      throw new Error(`Actual Date (${actualDate}) must be greater than Start Date (${startDate}).`);
+    if (startDate && actualDate && actualDate < startDate) {
+      throw new Error(`Actual Date (${actualDate}) cannot be earlier than Start Date (${startDate}).`);
+    }
+
+    // POKA-YOKE: Design Input Received Date >= Marketing Input Received Date
+    const mktDate = data.marketing_input_date?.trim() || null;
+    const dsgDate = data.design_input_date?.trim() || null;
+    if (mktDate && dsgDate && dsgDate < mktDate) {
+      throw new Error(`Design Input Received Date (${dsgDate}) cannot be earlier than Marketing Input Received Date (${mktDate}).`);
+    }
+
+    // POKA-YOKE: Costing BOM Shared Date >= Costing BOM Prepare Date
+    const bomPrepDate = data.costing_bom_prepare_date?.trim() || null;
+    const bomSharedDate = (data.costing_bom_submitted_date || data.costing_bom_shared_date)?.trim() || null;
+    if (bomPrepDate && bomSharedDate && bomSharedDate < bomPrepDate) {
+      throw new Error(`Costing BOM Shared Date (${bomSharedDate}) cannot be earlier than Costing BOM Prepare Date (${bomPrepDate}).`);
     }
 
     // POKA-YOKE: Blocking query check!
@@ -409,7 +423,7 @@ export const RFQService = {
 
     const rfqNumber = data.rfq_number?.trim() || this.generateNextNumber();
     const srNo = data.sr_no?.trim() || rfqNumber;
-    const uniqueRfqNo = data.unique_rfq_no?.trim() || rfqNumber;
+    const uniqueRfqNo = data.unique_rfq_no !== undefined ? (data.unique_rfq_no?.trim() || "") : "";
     const drawingNumber = data.drawing_number?.trim() || null;
     const modelVal = data.model?.trim() || null;
     const engineerId = data.engineer_id ? Number(data.engineer_id) : null;
@@ -488,7 +502,7 @@ export const RFQService = {
     const db = getDb();
     const rfq = db.prepare("SELECT * FROM rfqs WHERE id = ?").get(id) as any;
     if (!rfq) throw new Error("RFQ not found.");
-    if (rfq.is_deleted === 1) {
+    if (rfq.is_deleted === 1 && data.is_deleted !== 0) {
       throw new Error("Cannot update a deleted RFQ record.");
     }
 
@@ -503,11 +517,27 @@ export const RFQService = {
       ? (data.completion_date || data.actual_date || null)
       : (rfq.completion_date || rfq.actual_date || null);
 
-    if (startDate && targetDate && targetDate <= startDate) {
-      throw new Error(`Target Date (${targetDate}) must be greater than Start Date (${startDate}).`);
+    if (startDate && targetDate && targetDate < startDate) {
+      throw new Error(`Target Date (${targetDate}) cannot be earlier than Start Date (${startDate}).`);
     }
-    if (startDate && actualDate && actualDate <= startDate) {
-      throw new Error(`Actual Date (${actualDate}) must be greater than Start Date (${startDate}).`);
+    if (startDate && actualDate && actualDate < startDate) {
+      throw new Error(`Actual Date (${actualDate}) cannot be earlier than Start Date (${startDate}).`);
+    }
+
+    // POKA-YOKE: Design Input Received Date >= Marketing Input Received Date
+    const mktDate = (data.marketing_input_date !== undefined ? data.marketing_input_date : rfq.marketing_input_date)?.trim() || null;
+    const dsgDate = (data.design_input_date !== undefined ? data.design_input_date : rfq.design_input_date)?.trim() || null;
+    if (mktDate && dsgDate && dsgDate < mktDate) {
+      throw new Error(`Design Input Received Date (${dsgDate}) cannot be earlier than Marketing Input Received Date (${mktDate}).`);
+    }
+
+    // POKA-YOKE: Costing BOM Shared Date >= Costing BOM Prepare Date
+    const bomPrepDate = (data.costing_bom_prepare_date !== undefined ? data.costing_bom_prepare_date : rfq.costing_bom_prepare_date)?.trim() || null;
+    const bomSharedDate = ((data.costing_bom_submitted_date !== undefined ? data.costing_bom_submitted_date : data.costing_bom_shared_date) !== undefined
+      ? (data.costing_bom_submitted_date || data.costing_bom_shared_date)
+      : rfq.costing_bom_submitted_date)?.trim() || null;
+    if (bomPrepDate && bomSharedDate && bomSharedDate < bomPrepDate) {
+      throw new Error(`Costing BOM Shared Date (${bomSharedDate}) cannot be earlier than Costing BOM Prepare Date (${bomPrepDate}).`);
     }
 
     const queryYes = data.query_yes_no !== undefined ? (data.query_yes_no ? 1 : 0) : rfq.query_yes_no;
@@ -660,7 +690,112 @@ export const RFQService = {
       id
     );
 
-    return db.prepare("SELECT * FROM rfqs WHERE id = ?").get(id);
+    const updatedRfq = db.prepare("SELECT * FROM rfqs WHERE id = ?").get(id) as any;
+
+    // Simultaneously synchronize linked ECN records (excluding Start Date, Target Date, and Actual Date)
+    try {
+      this.syncRfqToEcns(id, updatedRfq, rfq);
+    } catch (err) {
+      console.error("Failed to sync RFQ changes to linked ECNs:", err);
+    }
+
+    return updatedRfq;
+  },
+
+  syncRfqToEcns(rfqId: number, updatedRfq: any, oldRfq?: any) {
+    const db = getDb();
+    const oldRfqNum = oldRfq?.rfq_number || "";
+    const oldSrNo = oldRfq?.sr_no || "";
+    const newRfqNum = updatedRfq.rfq_number || "";
+    const newSrNo = updatedRfq.sr_no || "";
+
+    // Find all active ECNs linked to this RFQ by rfq_id or rfq_no
+    const linkedEcns = db.prepare(`
+      SELECT * FROM ecns 
+      WHERE is_deleted = 0 
+        AND (
+          rfq_id = ? 
+          OR (
+            rfq_no IS NOT NULL AND rfq_no != '' AND (
+              rfq_no = ? OR rfq_no = ? OR rfq_no = ? OR rfq_no = ?
+            )
+          )
+        )
+    `).all(
+      rfqId,
+      newRfqNum,
+      newSrNo,
+      oldRfqNum,
+      oldSrNo
+    ) as any[];
+
+    if (!linkedEcns || linkedEcns.length === 0) return;
+
+    for (const ecn of linkedEcns) {
+      // Respect poka-yoke: Primary Engineer cannot be reassigned after work has started
+      const canUpdateEngineer = !ecn.work_start_date && updatedRfq.engineer_id;
+      const engineerToSet = canUpdateEngineer ? updatedRfq.engineer_id : ecn.primary_engineer_id;
+
+      const newCustomer = updatedRfq.customer_name !== undefined ? (updatedRfq.customer_name || "") : (ecn.customer_name || "");
+      const newModel = updatedRfq.model !== undefined ? (updatedRfq.model || "") : (ecn.model_name || "");
+      const newQueryStatus = updatedRfq.query_status !== undefined ? (updatedRfq.query_status || "Open") : (ecn.query_status || "Open");
+      const newUniqueDate = updatedRfq.unique_list_share_date !== undefined ? (updatedRfq.unique_list_share_date || "") : (ecn.unique_list_share_date || "");
+      const newUniqueRfqNo = updatedRfq.unique_rfq_no !== undefined ? (updatedRfq.unique_rfq_no || "") : (ecn.unique_rfq_no || "");
+      const newUniqueStatus = updatedRfq.unique_status !== undefined ? (updatedRfq.unique_status || "Open") : (ecn.unique_status || "Open");
+      const newOverallStatus = updatedRfq.overall_rfq_status !== undefined ? (updatedRfq.overall_rfq_status || "Open") : (ecn.overall_status || "Open");
+      const newNoOfCkt = (updatedRfq.no_of_ckt !== undefined && updatedRfq.no_of_ckt !== null) ? updatedRfq.no_of_ckt : ecn.no_of_ckt;
+      const newVolume = (updatedRfq.volume !== undefined && updatedRfq.volume !== null) ? updatedRfq.volume : ecn.volume;
+      const newReview = (updatedRfq.review_note !== undefined && updatedRfq.review_note !== "") ? updatedRfq.review_note : (ecn.review || "");
+      const newRfqNo = newSrNo || newRfqNum || ecn.rfq_no;
+      const newHarnessId = updatedRfq.harness_id || ecn.harness_id || null;
+      const newRevisionId = updatedRfq.revision_id || ecn.source_revision_id || null;
+      const newDesignInputDate = updatedRfq.design_input_date || ecn.design_input_date || null;
+
+      // Note: Start Date (work_start_date), Target Date (target_date), and Actual Date (completion_date)
+      // are deliberately NOT updated from RFQ to preserve ECN's distinct schedule.
+      db.prepare(`
+        UPDATE ecns SET
+          rfq_id = ?,
+          rfq_no = ?,
+          customer_name = ?,
+          model_name = ?,
+          query_status = ?,
+          unique_list_share_date = ?,
+          unique_rfq_no = ?,
+          unique_status = ?,
+          overall_status = ?,
+          ecn_status = ?,
+          no_of_ckt = ?,
+          volume = ?,
+          review = ?,
+          harness_id = ?,
+          source_revision_id = ?,
+          design_input_date = ?,
+          primary_engineer_id = ?,
+          modified_by = 'System Sync',
+          modified_at = datetime('now')
+        WHERE id = ?
+      `).run(
+        rfqId,
+        newRfqNo,
+        newCustomer,
+        newModel,
+        newQueryStatus,
+        newUniqueDate,
+        newUniqueRfqNo,
+        newUniqueStatus,
+        newOverallStatus,
+        newOverallStatus,
+        newNoOfCkt,
+        newVolume,
+        newReview,
+        newHarnessId,
+        newRevisionId,
+        newDesignInputDate,
+        engineerToSet,
+        ecn.id
+      );
+    }
   },
 
   softDelete(id: number) {
@@ -670,7 +805,9 @@ export const RFQService = {
   },
 
   restore(id: number) {
-    throw new Error("Restoring deleted RFQ records is not permitted. Once deleted, RFQs remain permanently archived for traceability.");
+    const db = getDb();
+    db.prepare("UPDATE rfqs SET is_deleted = 0, modified_at = datetime('now') WHERE id = ?").run(id);
+    return db.prepare("SELECT * FROM rfqs WHERE id = ?").get(id);
   }
 };
 
@@ -699,10 +836,10 @@ export const ECNService = {
         COALESCE(e.model_name, p.model_name, '') as model_name,
         COALESCE(e.rfq_no, r.rfq_number, r.sr_no, '') as rfq_no,
         COALESCE(e.overall_status, e.ecn_status, 'Open') as overall_status,
-        COALESCE(e.stage, 'sample') as stage,
+        COALESCE(e.stage, '') as stage,
         COALESCE(e.query_status, r.query_status, 'Open') as query_status,
         COALESCE(e.unique_list_share_date, r.unique_list_share_date, '') as unique_list_share_date,
-        COALESCE(e.unique_rfq_no, r.unique_rfq_no, r.rfq_number, '') as unique_rfq_no,
+        COALESCE(e.unique_rfq_no, r.unique_rfq_no, '') as unique_rfq_no,
         COALESCE(e.unique_status, r.unique_status, 'Open') as unique_status,
         COALESCE(e.sap_bom_upload_date, '') as sap_bom_upload_date,
         COALESCE(e.sap_bom_released_date, '') as sap_bom_released_date,
@@ -783,12 +920,12 @@ export const ECNService = {
       nextNum,
       rfq.id,
       rfq.sr_no || rfq.rfq_number,
-      "sample",
+      rfq.stage || "",
       rfq.customer_name || "",
       rfq.model || "",
       rfq.query_status || "Open",
       rfq.unique_list_share_date || "",
-      rfq.unique_rfq_no || rfq.rfq_number || "",
+      rfq.unique_rfq_no || "",
       rfq.unique_status || "Open",
       "", "", "",
       "", "", "", "Open",
@@ -914,7 +1051,7 @@ export const ECNService = {
     `).run(
       ecnNumber,
       data.rfq_no || null,
-      data.stage || "sample",
+      data.stage ?? "",
       data.customer_name || null,
       data.model_name || null,
       data.query_status || "Open",
@@ -961,7 +1098,7 @@ export const ECNService = {
     const db = getDb();
     const ecn = db.prepare("SELECT * FROM ecns WHERE id = ?").get(id) as any;
     if (!ecn) throw new Error("ECN not found.");
-    if (ecn.is_deleted === 1) {
+    if (ecn.is_deleted === 1 && data.is_deleted !== 0) {
       throw new Error("Cannot update a deleted ECN record.");
     }
 
@@ -1085,6 +1222,12 @@ export const ECNService = {
   softDelete(id: number) {
     const db = getDb();
     db.prepare("UPDATE ecns SET is_deleted = 1, modified_at = datetime('now') WHERE id = ?").run(id);
+    return db.prepare("SELECT * FROM ecns WHERE id = ?").get(id);
+  },
+
+  restore(id: number) {
+    const db = getDb();
+    db.prepare("UPDATE ecns SET is_deleted = 0, modified_at = datetime('now') WHERE id = ?").run(id);
     return db.prepare("SELECT * FROM ecns WHERE id = ?").get(id);
   }
 };

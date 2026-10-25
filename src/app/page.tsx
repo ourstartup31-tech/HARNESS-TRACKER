@@ -27,7 +27,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Layers,
-  FileText
+  FileText,
+  Lock,
+  RotateCcw
 } from "lucide-react";
 
 export default function App() {
@@ -35,6 +37,7 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [undoAction, setUndoAction] = useState<{ label: string; execute: () => Promise<void> | void } | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   // Sync theme with localStorage
@@ -191,31 +194,31 @@ export default function App() {
     "Open",
     "Close",
     "need to review",
-    "Pending>close",
-    "Hold>close"
+    "Pending & close",
+    "Hold & close"
   ];
 
   // RFQ Overall Status Dropdown Options (without 'need to review')
   const OVERALL_STATUS_OPTIONS = [
     "Open",
     "Close",
-    "Pending>close",
-    "Hold>close"
+    "Pending & close",
+    "Hold & close"
   ];
 
   // RFQ Costing BOM Status Dropdown Options (without 'need to review')
   const COSTING_BOM_STATUS_OPTIONS = [
     "Open",
     "Close",
-    "Pending>close",
-    "Hold>close"
+    "Pending & close",
+    "Hold & close"
   ];
 
   // RFQ Query Type Dropdown Options
   const QUERY_TYPE_OPTIONS = [
     "proposal",
     "query",
-    "query>proposal"
+    "query & proposal"
   ];
 
   // ECN Stage Dropdown Options (Exact sequence from user requirements)
@@ -241,9 +244,16 @@ export default function App() {
     "Open",
     "Close",
     "In Progress",
-    "Pending>close",
-    "Hold>close"
+    "Pending & close",
+    "Hold & close"
   ];
+
+  // Sorted RFQ options for ECN sheet (latest on top)
+  const sortedRfqOptions = [...rfqs]
+    .sort((a, b) => (b.id || 0) - (a.id || 0))
+    .map(r => r.sr_no || r.rfq_number)
+    .filter(Boolean);
+  const uniqueRfqOptions = Array.from(new Set(sortedRfqOptions));
 
   // Inline update helper for fast table editing
   const handleInlineUpdate = async (id: number, patchData: any) => {
@@ -290,9 +300,27 @@ export default function App() {
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || "Failed to delete");
       setSuccessBanner(`RFQ ${rfqNum} deleted.`);
+      setUndoAction({
+        label: `Undo delete for ${rfqNum}`,
+        execute: () => handleRestoreRfq(id, rfqNum)
+      });
       refreshAll();
     } catch (err: any) {
       setErrorBanner("Failed to delete RFQ: " + err.message);
+    }
+  };
+
+  // Restore RFQ execution (Undo delete)
+  const handleRestoreRfq = async (id: number, rfqNum: string) => {
+    try {
+      const res = await fetch(`/api/rfqs?action=restore&id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to recover");
+      setSuccessBanner(`RFQ ${rfqNum} recovered successfully!`);
+      setUndoAction(null);
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to recover RFQ: " + err.message);
     }
   };
 
@@ -303,9 +331,27 @@ export default function App() {
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || "Failed to delete");
       setSuccessBanner(`ECN ${ecnNum} deleted.`);
+      setUndoAction({
+        label: `Undo delete for ${ecnNum}`,
+        execute: () => handleRestoreEcn(id, ecnNum)
+      });
       refreshAll();
     } catch (err: any) {
       setErrorBanner("Failed to delete ECN: " + err.message);
+    }
+  };
+
+  // Restore ECN execution (Undo delete)
+  const handleRestoreEcn = async (id: number, ecnNum: string) => {
+    try {
+      const res = await fetch(`/api/ecns?action=restore&id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to recover");
+      setSuccessBanner(`ECN ${ecnNum} recovered successfully!`);
+      setUndoAction(null);
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to recover ECN: " + err.message);
     }
   };
 
@@ -326,7 +372,7 @@ export default function App() {
       customer_name: "",
       create_ecn: false,
       sr_no: nextNum,
-      unique_rfq_no: nextNum,
+      unique_rfq_no: "",
       drawing_number: "",
       model: "",
       engineer_id: "",
@@ -355,7 +401,7 @@ export default function App() {
   const handleOpenNewEcn = () => {
     setModalData({
       rfq_no: "",
-      stage: "sample",
+      stage: "",
       customer_name: "",
       model_name: "",
       query_status: "Open",
@@ -440,6 +486,32 @@ export default function App() {
         return;
     }
 
+    if (modalType === "new_rfq" || modalType === "edit_rfq") {
+      const mktDate = payload.marketing_input_date?.trim();
+      const dsgDate = payload.design_input_date?.trim();
+      if (mktDate && dsgDate && dsgDate < mktDate) {
+        setModalError(`Design Input Received Date (${dsgDate}) cannot be earlier than Marketing Input Received Date (${mktDate}).`);
+        return;
+      }
+      const bomPrepDate = payload.costing_bom_prepare_date?.trim();
+      const bomSharedDate = (payload.costing_bom_submitted_date || payload.costing_bom_shared_date)?.trim();
+      if (bomPrepDate && bomSharedDate && bomSharedDate < bomPrepDate) {
+        setModalError(`Costing BOM Shared Date (${bomSharedDate}) cannot be earlier than Costing BOM Prepare Date (${bomPrepDate}).`);
+        return;
+      }
+      const startDate = (payload.work_start_date || payload.start_date)?.trim();
+      const targetDate = payload.target_date?.trim();
+      const actualDate = (payload.completion_date || payload.actual_date)?.trim();
+      if (startDate && targetDate && targetDate < startDate) {
+        setModalError(`Target Date (${targetDate}) cannot be earlier than Start Date (${startDate}).`);
+        return;
+      }
+      if (startDate && actualDate && actualDate < startDate) {
+        setModalError(`Actual Date (${actualDate}) cannot be earlier than Start Date (${startDate}).`);
+        return;
+      }
+    }
+
     try {
       const res = await fetch(endpoint, {
         method,
@@ -488,6 +560,18 @@ export default function App() {
     projects.forEach(p => { if (p.customer_name?.trim()) set.add(p.customer_name.trim()); });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [customers, rfqs, ecns, projects]);
+
+  // Helper to fetch list of model names registered under a specific customer from Master Data (Projects)
+  const getModelsForCustomer = React.useCallback((customerName?: string): string[] => {
+    if (!customerName || !customerName.trim()) return [];
+    const cLower = customerName.trim().toLowerCase();
+    const targetCust = customers.find(c => (c.name || "").trim().toLowerCase() === cLower);
+    const matched = projects.filter(p => {
+      const pCust = (p.customer_name || "").trim().toLowerCase();
+      return pCust === cLower || (targetCust && p.customer_id === targetCust.id);
+    });
+    return Array.from(new Set(matched.map(p => (p.model_name || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }, [projects, customers]);
 
   const customerStatsMap = React.useMemo(() => {
     const map: Record<string, {
@@ -589,9 +673,6 @@ export default function App() {
 
       {/* 2. MAIN CONTENT AREA */}
       <main className="main-content">
-        {/* DESPL Golden Heading */}
-        <div className="brand-heading">DESPL</div>
-
         {/* Global Error & Success Banners */}
         {errorBanner && (
           <div className="error-banner" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -603,7 +684,17 @@ export default function App() {
         {successBanner && (
           <div className="success-banner" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <CheckCircle2 size={18} />
-            <span>{successBanner}</span>
+            <span style={{ flex: 1 }}>{successBanner}</span>
+            {undoAction && (
+              <button
+                className="btn btn-outline"
+                style={{ padding: "3px 10px", fontSize: "12px", display: "flex", alignItems: "center", gap: "5px", color: "#38bdf8", borderColor: "#38bdf8" }}
+                onClick={() => undoAction.execute()}
+              >
+                <RotateCcw size={13} /> Undo
+              </button>
+            )}
+            <button className="btn btn-outline" style={{ padding: "2px 6px" }} onClick={() => { setSuccessBanner(null); setUndoAction(null); }}>Dismiss</button>
           </div>
         )}
 
@@ -844,7 +935,7 @@ export default function App() {
                       <th>Query type</th>
                       <th>Query status</th>
                       <th>Unique list share date</th>
-                      <th>Unique RFQ No.</th>
+                      <th>UCL No</th>
                       <th>Unique status</th>
                       <th>costing BOM prepare date</th>
                       <th>Costing BOM shared date</th>
@@ -876,7 +967,12 @@ export default function App() {
                             onChange={async (e) => {
                               const val = e.target.value;
                               if (val !== (r.customer_name || "")) {
-                                await handleInlineUpdate(r.id, { customer_name: val });
+                                const custModels = getModelsForCustomer(val);
+                                const autoModel = custModels.length > 0 ? custModels[0] : "";
+                                await handleInlineUpdate(r.id, {
+                                  customer_name: val,
+                                  ...(autoModel !== (r.model || "") ? { model: autoModel } : {})
+                                });
                               }
                             }}
                           >
@@ -890,24 +986,30 @@ export default function App() {
                           </select>
                         </td>
                         <td style={{ minWidth: "150px", padding: "4px" }}>
-                          <input
-                            type="text"
-                            className="table-inline-input"
-                            placeholder="Add Model..."
-                            defaultValue={r.model || r.model_name || ""}
-                            key={`mdl-${r.id}-${r.model || r.model_name || ""}`}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                (e.target as HTMLInputElement).blur();
-                              }
-                            }}
-                            onBlur={async (e) => {
-                              const val = e.target.value.trim();
-                              if (val !== (r.model || r.model_name || "")) {
-                                await handleInlineUpdate(r.id, { model: val });
-                              }
-                            }}
-                          />
+                          {(() => {
+                            const custModels = getModelsForCustomer(r.customer_name);
+                            return (
+                              <select
+                                className="table-inline-select"
+                                value={r.model || r.model_name || ""}
+                                key={`mdl-${r.id}-${r.model || r.model_name || ""}`}
+                                onChange={async (e) => {
+                                  const val = e.target.value;
+                                  if (val !== (r.model || r.model_name || "")) {
+                                    await handleInlineUpdate(r.id, { model: val });
+                                  }
+                                }}
+                              >
+                                <option value="">--</option>
+                                {custModels.map((m) => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                                {(r.model || r.model_name) && !custModels.includes(r.model || r.model_name) && (
+                                  <option value={r.model || r.model_name}>{r.model || r.model_name}</option>
+                                )}
+                              </select>
+                            );
+                          })()}
                         </td>
                         <td style={{ minWidth: "150px", padding: "4px" }}>
                           <input
@@ -1027,7 +1129,14 @@ export default function App() {
                             className="table-date-input"
                             value={r.marketing_input_date || ""}
                             onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                            onChange={(e) => handleInlineUpdate(r.id, { marketing_input_date: e.target.value })}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val && r.design_input_date && r.design_input_date < val) {
+                                setErrorBanner(`Marketing Input Received Date (${val}) cannot be later than existing Design Input Received Date (${r.design_input_date}).`);
+                                return;
+                              }
+                              handleInlineUpdate(r.id, { marketing_input_date: val });
+                            }}
                           />
                         </td>
                         <td style={{ minWidth: "135px", padding: "4px" }}>
@@ -1035,8 +1144,16 @@ export default function App() {
                             type="date"
                             className="table-date-input"
                             value={r.design_input_date || ""}
+                            min={r.marketing_input_date || undefined}
                             onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                            onChange={(e) => handleInlineUpdate(r.id, { design_input_date: e.target.value })}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val && r.marketing_input_date && val < r.marketing_input_date) {
+                                setErrorBanner(`Design Input Received Date (${val}) cannot be earlier than Marketing Input Received Date (${r.marketing_input_date}).`);
+                                return;
+                              }
+                              handleInlineUpdate(r.id, { design_input_date: val });
+                            }}
                           />
                         </td>
                         <td style={{ minWidth: "135px", padding: "4px" }}>
@@ -1103,15 +1220,21 @@ export default function App() {
                           <input
                             type="text"
                             className="table-inline-input"
-                            placeholder="Unique RFQ No..."
-                            defaultValue={r.unique_rfq_no || r.rfq_number || ""}
-                            key={`unq-${r.id}-${r.unique_rfq_no || r.rfq_number || ""}`}
+                            placeholder="e.g. 556, 987, 9877"
+                            defaultValue={r.unique_rfq_no || ""}
+                            key={`unq-${r.id}-${r.unique_rfq_no || ""}`}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                              if (!/[0-9, ]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                                e.preventDefault();
+                              }
+                            }}
+                            onChange={(e) => {
+                              e.target.value = e.target.value.replace(/[^0-9,\s]/g, "");
                             }}
                             onBlur={async (e) => {
-                              const val = e.target.value.trim();
-                              if (val !== (r.unique_rfq_no || r.rfq_number || "")) {
+                              const val = e.target.value.replace(/[^0-9,\s]/g, "").trim();
+                              if (val !== (r.unique_rfq_no || "")) {
                                 await handleInlineUpdate(r.id, { unique_rfq_no: val });
                               }
                             }}
@@ -1143,7 +1266,14 @@ export default function App() {
                             className="table-date-input"
                             value={r.costing_bom_prepare_date || ""}
                             onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                            onChange={(e) => handleInlineUpdate(r.id, { costing_bom_prepare_date: e.target.value })}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val && r.costing_bom_submitted_date && r.costing_bom_submitted_date < val) {
+                                setErrorBanner(`Costing BOM Prepare Date (${val}) cannot be later than existing Costing BOM Shared Date (${r.costing_bom_submitted_date}).`);
+                                return;
+                              }
+                              handleInlineUpdate(r.id, { costing_bom_prepare_date: val });
+                            }}
                           />
                         </td>
                         <td style={{ minWidth: "135px", padding: "4px" }}>
@@ -1151,8 +1281,16 @@ export default function App() {
                             type="date"
                             className="table-date-input"
                             value={r.costing_bom_submitted_date || ""}
+                            min={r.costing_bom_prepare_date || undefined}
                             onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                            onChange={(e) => handleInlineUpdate(r.id, { costing_bom_submitted_date: e.target.value })}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val && r.costing_bom_prepare_date && val < r.costing_bom_prepare_date) {
+                                setErrorBanner(`Costing BOM Shared Date (${val}) cannot be earlier than Costing BOM Prepare Date (${r.costing_bom_prepare_date}).`);
+                                return;
+                              }
+                              handleInlineUpdate(r.id, { costing_bom_submitted_date: val });
+                            }}
                           />
                         </td>
                         <td>
@@ -1195,22 +1333,40 @@ export default function App() {
                             }}
                           />
                         </td>
-                        <td>
-                          <select
-                            className="table-status-select"
-                            value={
-                              ((r.query_status?.toLowerCase() === "close" || r.query_status?.toLowerCase() === "closed") &&
-                               (r.unique_status?.toLowerCase() === "close" || r.unique_status?.toLowerCase() === "closed") &&
-                               (r.costing_bom_status?.toLowerCase() === "close" || r.costing_bom_status?.toLowerCase() === "closed"))
-                                ? "Close"
-                                : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open"))
-                            }
-                            onChange={(e) => handleInlineUpdate(r.id, { overall_rfq_status: e.target.value })}
-                          >
-                            {OVERALL_STATUS_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
+                        <td style={{ textAlign: "center", padding: "4px 8px" }}>
+                          {(() => {
+                            const isAllClose = 
+                              (r.query_status?.toLowerCase() === "close" || r.query_status?.toLowerCase() === "closed") &&
+                              (r.unique_status?.toLowerCase() === "close" || r.unique_status?.toLowerCase() === "closed") &&
+                              (r.costing_bom_status?.toLowerCase() === "close" || r.costing_bom_status?.toLowerCase() === "closed");
+                            const currentStatus = isAllClose ? "Close" : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open"));
+                            const isClosed = currentStatus.toLowerCase() === "close" || currentStatus.toLowerCase() === "closed";
+                            return (
+                              <div
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  gap: "5px",
+                                  padding: "5px 10px",
+                                  borderRadius: "6px",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  background: isClosed ? "rgba(34, 197, 94, 0.15)" : "rgba(56, 189, 248, 0.12)",
+                                  color: isClosed ? "#4ade80" : "#38bdf8",
+                                  border: `1px solid ${isClosed ? "rgba(34, 197, 94, 0.3)" : "rgba(56, 189, 248, 0.3)"}`,
+                                  cursor: "default",
+                                  userSelect: "none",
+                                  width: "100%",
+                                  boxSizing: "border-box"
+                                }}
+                                title="Overall Status is automatically locked based on milestone completion"
+                              >
+                                <Lock size={11} style={{ opacity: 0.7 }} />
+                                <span>{currentStatus}</span>
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td style={{ minWidth: "150px", padding: "4px" }}>
                           <select
@@ -1330,9 +1486,19 @@ export default function App() {
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           {r.is_deleted ? (
-                            <span className="badge badge-danger" style={{ padding: "4px 10px", fontSize: "11px", fontWeight: 700 }}>
-                              Deleted
-                            </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span className="badge badge-danger" style={{ padding: "4px 8px", fontSize: "11px", fontWeight: 700 }}>
+                                Deleted
+                              </span>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: "4px 8px", fontSize: "11px", color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)", display: "flex", alignItems: "center", gap: "4px" }}
+                                title="Undo / Recover deleted RFQ"
+                                onClick={() => handleRestoreRfq(r.id, r.sr_no || r.rfq_number)}
+                              >
+                                <RotateCcw size={12} /> Undo
+                              </button>
+                            </div>
                           ) : (
                             <div style={{ display: "flex", gap: "6px" }}>
                               <button
@@ -1348,7 +1514,7 @@ export default function App() {
                                     overall_rfq_status: isAll ? "Close" : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open")),
                                     customer_name: r.customer_name || "",
                                     sr_no: r.sr_no || r.rfq_number || "",
-                                    unique_rfq_no: r.unique_rfq_no || r.rfq_number || "",
+                                    unique_rfq_no: r.unique_rfq_no || "",
                                     drawing_number: r.drawing_number || "",
                                     model: r.model || r.model_name || "",
                                     harness_part_no: r.harness_part_no || r.harness_number || "",
@@ -1416,7 +1582,7 @@ export default function App() {
                       <th>model name</th>
                       <th>Query status</th>
                       <th>Unique list share date</th>
-                      <th>Unique RFQ No.</th>
+                      <th>UCL No</th>
                       <th>Unique status</th>
                       <th>sap bom upload date</th>
                       <th>sap bom released date</th>
@@ -1442,26 +1608,38 @@ export default function App() {
                           {e.ecn_number || idx + 1}
                           {e.is_deleted ? <span className="deleted-badge">DELETED</span> : null}
                         </td>
-                        <td style={{ minWidth: "150px", padding: "4px" }}>
-                          <input
-                            type="text"
-                            className="table-inline-input"
-                            placeholder="RFQ No..."
-                            defaultValue={e.rfq_no || ""}
+                        <td style={{ minWidth: "160px", padding: "4px" }}>
+                          <select
+                            className="table-inline-select"
+                            value={e.rfq_no || ""}
                             key={`ecn-rfq-${e.id}-${e.rfq_no || ""}`}
-                            onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
-                            onBlur={async (ev) => {
-                              const val = ev.target.value.trim();
+                            onChange={async (ev) => {
+                              const val = ev.target.value;
                               if (val !== (e.rfq_no || "")) {
-                                await handleInlineEcnUpdate(e.id, { rfq_no: val });
+                                const matchedRfq = rfqs.find(r => (r.sr_no || r.rfq_number) === val);
+                                await handleInlineEcnUpdate(e.id, {
+                                  rfq_no: val,
+                                  ...(matchedRfq ? {
+                                    customer_name: matchedRfq.customer_name || e.customer_name || "",
+                                    model_name: matchedRfq.model || e.model_name || ""
+                                  } : {})
+                                });
                               }
                             }}
-                          />
+                          >
+                            <option value="">Select RFQ No...</option>
+                            {uniqueRfqOptions.map((rfqNo) => (
+                              <option key={rfqNo} value={rfqNo}>{rfqNo}</option>
+                            ))}
+                            {e.rfq_no && !uniqueRfqOptions.includes(e.rfq_no) && (
+                              <option value={e.rfq_no}>{e.rfq_no}</option>
+                            )}
+                          </select>
                         </td>
                         <td style={{ minWidth: "140px", padding: "4px" }}>
                           <select
                             className="table-inline-select"
-                            value={e.stage || "sample"}
+                            value={e.stage || ""}
                             key={`ecn-stg-${e.id}-${e.stage || ""}`}
                             onChange={async (ev) => {
                               const val = ev.target.value;
@@ -1470,6 +1648,7 @@ export default function App() {
                               }
                             }}
                           >
+                            <option value="">--</option>
                             {ECN_STAGE_OPTIONS.map((opt) => (
                               <option key={opt} value={opt}>{opt}</option>
                             ))}
@@ -1483,7 +1662,12 @@ export default function App() {
                             onChange={async (ev) => {
                               const val = ev.target.value;
                               if (val !== (e.customer_name || "")) {
-                                await handleInlineEcnUpdate(e.id, { customer_name: val });
+                                const custModels = getModelsForCustomer(val);
+                                const autoModel = custModels.length > 0 ? custModels[0] : "";
+                                await handleInlineEcnUpdate(e.id, {
+                                  customer_name: val,
+                                  ...(autoModel !== (e.model_name || "") ? { model_name: autoModel } : {})
+                                });
                               }
                             }}
                           >
@@ -1497,20 +1681,30 @@ export default function App() {
                           </select>
                         </td>
                         <td style={{ minWidth: "150px", padding: "4px" }}>
-                          <input
-                            type="text"
-                            className="table-inline-input"
-                            placeholder="Model..."
-                            defaultValue={e.model_name || ""}
-                            key={`ecn-mdl-${e.id}-${e.model_name || ""}`}
-                            onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
-                            onBlur={async (ev) => {
-                              const val = ev.target.value.trim();
-                              if (val !== (e.model_name || "")) {
-                                await handleInlineEcnUpdate(e.id, { model_name: val });
-                              }
-                            }}
-                          />
+                          {(() => {
+                            const custModels = getModelsForCustomer(e.customer_name);
+                            return (
+                              <select
+                                className="table-inline-select"
+                                value={e.model_name || ""}
+                                key={`ecn-mdl-${e.id}-${e.model_name || ""}`}
+                                onChange={async (ev) => {
+                                  const val = ev.target.value;
+                                  if (val !== (e.model_name || "")) {
+                                    await handleInlineEcnUpdate(e.id, { model_name: val });
+                                  }
+                                }}
+                              >
+                                <option value="">--</option>
+                                {custModels.map((m) => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                                {e.model_name && !custModels.includes(e.model_name) && (
+                                  <option value={e.model_name}>{e.model_name}</option>
+                                )}
+                              </select>
+                            );
+                          })()}
                         </td>
                         <td style={{ minWidth: "140px", padding: "4px" }}>
                           <select
@@ -1549,12 +1743,20 @@ export default function App() {
                           <input
                             type="text"
                             className="table-inline-input"
-                            placeholder="Unique RFQ No..."
+                            placeholder="e.g. 556, 987, 9877"
                             defaultValue={e.unique_rfq_no || ""}
                             key={`ecn-urfq-${e.id}-${e.unique_rfq_no || ""}`}
-                            onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
+                            onKeyDown={(ev) => {
+                              if (ev.key === "Enter") (ev.target as HTMLInputElement).blur();
+                              if (!/[0-9, ]/.test(ev.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(ev.key)) {
+                                ev.preventDefault();
+                              }
+                            }}
+                            onChange={(ev) => {
+                              ev.target.value = ev.target.value.replace(/[^0-9,\s]/g, "");
+                            }}
                             onBlur={async (ev) => {
-                              const val = ev.target.value.trim();
+                              const val = ev.target.value.replace(/[^0-9,\s]/g, "").trim();
                               if (val !== (e.unique_rfq_no || "")) {
                                 await handleInlineEcnUpdate(e.id, { unique_rfq_no: val });
                               }
@@ -1820,7 +2022,19 @@ export default function App() {
                         </td>
                         <td style={{ minWidth: "140px", padding: "4px" }}>
                           {e.is_deleted ? (
-                            <span className="badge badge-cancelled" style={{ fontSize: "11px" }}>Permanently Deleted</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span className="badge badge-danger" style={{ padding: "4px 8px", fontSize: "11px", fontWeight: 700 }}>
+                                Deleted
+                              </span>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: "4px 8px", fontSize: "11px", color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)", display: "flex", alignItems: "center", gap: "4px" }}
+                                title="Undo / Recover deleted ECN"
+                                onClick={() => handleRestoreEcn(e.id, e.ecn_number || String(e.id))}
+                              >
+                                <RotateCcw size={12} /> Undo
+                              </button>
+                            </div>
                           ) : (
                             <div style={{ display: "flex", gap: "6px" }}>
                               <button
@@ -2196,7 +2410,7 @@ export default function App() {
                                 <th>Customer Name</th>
                                 <th>Drawing No.</th>
                                 <th>Model Name</th>
-                                <th>Unique RFQ No.</th>
+                                <th>UCL No</th>
                                 <th>No. of Ckt</th>
                                 <th>Volume</th>
                                 <th>Query Status</th>
@@ -2360,9 +2574,13 @@ export default function App() {
                                     )}
                                   </td>
                                   <td>
-                                    <span className="badge badge-active" style={{ textTransform: "capitalize" }}>
-                                      {e.stage || "sample"}
-                                    </span>
+                                    {e.stage ? (
+                                      <span className="badge badge-active" style={{ textTransform: "capitalize" }}>
+                                        {e.stage}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>—</span>
+                                    )}
                                   </td>
                                   <td>{e.customer_name || "—"}</td>
                                   <td>{e.model_name || "—"}</td>
@@ -2965,7 +3183,17 @@ export default function App() {
                         <label className="form-label">Customer Name</label>
                         <select
                           value={modalData.customer_name || ""}
-                          onChange={e => setModalData({ ...modalData, customer_name: e.target.value })}
+                          onChange={e => {
+                            const newCust = e.target.value;
+                            const availableModels = getModelsForCustomer(newCust);
+                            const autoModel = availableModels.length > 0 ? availableModels[0] : "";
+                            setModalData({
+                              ...modalData,
+                              customer_name: newCust,
+                              model: autoModel,
+                              is_custom_model: false
+                            });
+                          }}
                         >
                           <option value="">Select Customer from Customer Master...</option>
                           {customers.map(c => (
@@ -2980,13 +3208,54 @@ export default function App() {
 
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Model</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Scorpio-EV or Nexon-EV"
-                          value={modalData.model || ""}
-                          onChange={e => setModalData({ ...modalData, model: e.target.value })}
-                        />
+                        <label className="form-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span>Model</span>
+                          {modalData.is_custom_model ? (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#38bdf8", cursor: "pointer", fontSize: "11px", textDecoration: "underline" }}
+                              onClick={() => setModalData({ ...modalData, is_custom_model: false })}
+                            >
+                              Choose from list
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "11px" }}
+                              onClick={() => setModalData({ ...modalData, is_custom_model: true })}
+                            >
+                              + Type custom
+                            </button>
+                          )}
+                        </label>
+                        {modalData.is_custom_model ? (
+                          <input
+                            type="text"
+                            placeholder="Enter custom model name..."
+                            value={modalData.model || ""}
+                            onChange={e => setModalData({ ...modalData, model: e.target.value })}
+                          />
+                        ) : (
+                          <select
+                            value={modalData.model || ""}
+                            onChange={e => {
+                              if (e.target.value === "__custom__") {
+                                setModalData({ ...modalData, is_custom_model: true, model: "" });
+                              } else {
+                                setModalData({ ...modalData, model: e.target.value });
+                              }
+                            }}
+                          >
+                            <option value="">--</option>
+                            {getModelsForCustomer(modalData.customer_name).map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                            {modalData.model && !getModelsForCustomer(modalData.customer_name).includes(modalData.model) && modalData.model !== "" && (
+                              <option value={modalData.model}>{modalData.model}</option>
+                            )}
+                            <option value="__custom__">+ Enter custom model...</option>
+                          </select>
+                        )}
                       </div>
                       <div className="form-group">
                         <label className="form-label">Drawing Number</label>
@@ -3000,12 +3269,17 @@ export default function App() {
                     </div>
 
                     <div className="form-group">
-                      <label className="form-label">Unique RFQ No.</label>
+                      <label className="form-label">UCL No</label>
                       <input
                         type="text"
-                        placeholder="Auto-generated e.g. RFQ618260001"
-                        value={modalData.unique_rfq_no || modalData.rfq_number || ""}
-                        onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value })}
+                        placeholder="e.g. 556, 987, 9877 (numbers only, comma separated)"
+                        value={modalData.unique_rfq_no || ""}
+                        onKeyDown={(e) => {
+                          if (!/[0-9, ]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
+                        onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value.replace(/[^0-9,\s]/g, "") })}
                       />
                     </div>
 
@@ -3124,7 +3398,15 @@ export default function App() {
                           value={modalData.marketing_input_date || ""}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, marketing_input_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.design_input_date && modalData.design_input_date < val) {
+                              setModalError(`Marketing Input Received Date (${val}) cannot be later than existing Design Input Received Date (${modalData.design_input_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, marketing_input_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3134,9 +3416,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.design_input_date || ""}
+                          min={modalData.marketing_input_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, design_input_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.marketing_input_date && val < modalData.marketing_input_date) {
+                              setModalError(`Design Input Received Date (${val}) cannot be earlier than Marketing Input Received Date (${modalData.marketing_input_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, design_input_date: val });
+                          }}
                         />
                       </div>
                     </div>
@@ -3151,7 +3442,19 @@ export default function App() {
                           value={modalData.work_start_date || ""}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, work_start_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.target_date && modalData.target_date < val) {
+                              setModalError(`Start Date (${val}) cannot be later than Target Date (${modalData.target_date}).`);
+                              return;
+                            }
+                            if (val && modalData.completion_date && modalData.completion_date < val) {
+                              setModalError(`Start Date (${val}) cannot be later than Actual Date (${modalData.completion_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, work_start_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3161,9 +3464,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.target_date || ""}
+                          min={modalData.work_start_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, target_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.work_start_date && val < modalData.work_start_date) {
+                              setModalError(`Target Date (${val}) cannot be earlier than Start Date (${modalData.work_start_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, target_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3173,9 +3485,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.completion_date || ""}
+                          min={modalData.work_start_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, completion_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.work_start_date && val < modalData.work_start_date) {
+                              setModalError(`Actual Date (${val}) cannot be earlier than Start Date (${modalData.work_start_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, completion_date: val });
+                          }}
                         />
                       </div>
                     </div>
@@ -3292,7 +3613,15 @@ export default function App() {
                           value={modalData.costing_bom_prepare_date || ""}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, costing_bom_prepare_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.costing_bom_submitted_date && modalData.costing_bom_submitted_date < val) {
+                              setModalError(`Costing BOM Prepare Date (${val}) cannot be later than existing Costing BOM Shared Date (${modalData.costing_bom_submitted_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, costing_bom_prepare_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3302,9 +3631,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.costing_bom_submitted_date || ""}
+                          min={modalData.costing_bom_prepare_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, costing_bom_submitted_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.costing_bom_prepare_date && val < modalData.costing_bom_prepare_date) {
+                              setModalError(`Costing BOM Shared Date (${val}) cannot be earlier than Costing BOM Prepare Date (${modalData.costing_bom_prepare_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, costing_bom_submitted_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3333,21 +3671,40 @@ export default function App() {
                     <div className="form-section-title">5. Status & Remarks</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Over all status</label>
-                        <select
-                          value={
-                            (((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
-                             ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
-                             ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed"))
-                              ? "Close"
-                              : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
-                          }
-                          onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
-                        >
-                          {OVERALL_STATUS_OPTIONS.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Lock size={12} style={{ color: "#38bdf8" }} /> Over all status (Locked)
+                        </label>
+                        {(() => {
+                          const isAll = 
+                            ((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
+                            ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
+                            ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed");
+                          const currentStatus = isAll ? "Close" : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"));
+                          const isClosed = currentStatus.toLowerCase() === "close" || currentStatus.toLowerCase() === "closed";
+                          return (
+                            <div
+                              style={{
+                                background: "var(--bg-input)",
+                                border: "1px solid var(--border)",
+                                borderRadius: "8px",
+                                padding: "9px 12px",
+                                fontSize: "13px",
+                                fontWeight: 600,
+                                color: isClosed ? "#4ade80" : "#38bdf8",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                userSelect: "none"
+                              }}
+                            >
+                              <Lock size={13} style={{ opacity: 0.7 }} />
+                              <span>{currentStatus}</span>
+                              <span style={{ fontSize: "11px", color: "var(--text-muted)", marginLeft: "auto", fontWeight: 400 }}>
+                                {isAll ? "All 3 Milestones Closed" : "Milestone Dependent"}
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="form-group">
                         <label className="form-label">Name (Engineer Master)</label>
@@ -3434,7 +3791,17 @@ export default function App() {
                         <label className="form-label">Customer Name</label>
                         <select
                           value={modalData.customer_name || ""}
-                          onChange={e => setModalData({ ...modalData, customer_name: e.target.value })}
+                          onChange={e => {
+                            const newCust = e.target.value;
+                            const availableModels = getModelsForCustomer(newCust);
+                            const autoModel = availableModels.length > 0 ? (availableModels.includes(modalData.model) ? modalData.model : availableModels[0]) : (modalData.model || "");
+                            setModalData({
+                              ...modalData,
+                              customer_name: newCust,
+                              model: autoModel,
+                              is_custom_model: false
+                            });
+                          }}
                         >
                           <option value="">Select Customer from Customer Master...</option>
                           {customers.map(c => (
@@ -3449,13 +3816,54 @@ export default function App() {
 
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Model</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Scorpio-EV or Nexon-EV"
-                          value={modalData.model || ""}
-                          onChange={e => setModalData({ ...modalData, model: e.target.value })}
-                        />
+                        <label className="form-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span>Model</span>
+                          {modalData.is_custom_model ? (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#38bdf8", cursor: "pointer", fontSize: "11px", textDecoration: "underline" }}
+                              onClick={() => setModalData({ ...modalData, is_custom_model: false })}
+                            >
+                              Choose from list
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "11px" }}
+                              onClick={() => setModalData({ ...modalData, is_custom_model: true })}
+                            >
+                              + Type custom
+                            </button>
+                          )}
+                        </label>
+                        {modalData.is_custom_model ? (
+                          <input
+                            type="text"
+                            placeholder="Enter custom model name..."
+                            value={modalData.model || ""}
+                            onChange={e => setModalData({ ...modalData, model: e.target.value })}
+                          />
+                        ) : (
+                          <select
+                            value={modalData.model || ""}
+                            onChange={e => {
+                              if (e.target.value === "__custom__") {
+                                setModalData({ ...modalData, is_custom_model: true, model: "" });
+                              } else {
+                                setModalData({ ...modalData, model: e.target.value });
+                              }
+                            }}
+                          >
+                            <option value="">--</option>
+                            {getModelsForCustomer(modalData.customer_name).map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                            {modalData.model && !getModelsForCustomer(modalData.customer_name).includes(modalData.model) && modalData.model !== "" && (
+                              <option value={modalData.model}>{modalData.model}</option>
+                            )}
+                            <option value="__custom__">+ Enter custom model...</option>
+                          </select>
+                        )}
                       </div>
                       <div className="form-group">
                         <label className="form-label">Drawing Number</label>
@@ -3469,11 +3877,17 @@ export default function App() {
                     </div>
 
                     <div className="form-group">
-                      <label className="form-label">Unique RFQ No.</label>
+                      <label className="form-label">UCL No</label>
                       <input
                         type="text"
+                        placeholder="e.g. 556, 987, 9877 (numbers only, comma separated)"
                         value={modalData.unique_rfq_no || ""}
-                        onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (!/[0-9, ]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
+                        onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value.replace(/[^0-9,\s]/g, "") })}
                       />
                     </div>
 
@@ -3573,7 +3987,15 @@ export default function App() {
                           value={modalData.marketing_input_date || ""}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, marketing_input_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.design_input_date && modalData.design_input_date < val) {
+                              setModalError(`Marketing Input Received Date (${val}) cannot be later than existing Design Input Received Date (${modalData.design_input_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, marketing_input_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3583,9 +4005,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.design_input_date || ""}
+                          min={modalData.marketing_input_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, design_input_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.marketing_input_date && val < modalData.marketing_input_date) {
+                              setModalError(`Design Input Received Date (${val}) cannot be earlier than Marketing Input Received Date (${modalData.marketing_input_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, design_input_date: val });
+                          }}
                         />
                       </div>
                     </div>
@@ -3600,7 +4031,19 @@ export default function App() {
                           value={modalData.work_start_date || ""}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, work_start_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.target_date && modalData.target_date < val) {
+                              setModalError(`Start Date (${val}) cannot be later than Target Date (${modalData.target_date}).`);
+                              return;
+                            }
+                            if (val && modalData.completion_date && modalData.completion_date < val) {
+                              setModalError(`Start Date (${val}) cannot be later than Actual Date (${modalData.completion_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, work_start_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3610,9 +4053,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.target_date || ""}
+                          min={modalData.work_start_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, target_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.work_start_date && val < modalData.work_start_date) {
+                              setModalError(`Target Date (${val}) cannot be earlier than Start Date (${modalData.work_start_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, target_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3622,9 +4074,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.completion_date || ""}
+                          min={modalData.work_start_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, completion_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.work_start_date && val < modalData.work_start_date) {
+                              setModalError(`Actual Date (${val}) cannot be earlier than Start Date (${modalData.work_start_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, completion_date: val });
+                          }}
                         />
                       </div>
                     </div>
@@ -3741,7 +4202,15 @@ export default function App() {
                           value={modalData.costing_bom_prepare_date || ""}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, costing_bom_prepare_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.costing_bom_submitted_date && modalData.costing_bom_submitted_date < val) {
+                              setModalError(`Costing BOM Prepare Date (${val}) cannot be later than existing Costing BOM Shared Date (${modalData.costing_bom_submitted_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, costing_bom_prepare_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3751,9 +4220,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.costing_bom_submitted_date || ""}
+                          min={modalData.costing_bom_prepare_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, costing_bom_submitted_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.costing_bom_prepare_date && val < modalData.costing_bom_prepare_date) {
+                              setModalError(`Costing BOM Shared Date (${val}) cannot be earlier than Costing BOM Prepare Date (${modalData.costing_bom_prepare_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, costing_bom_submitted_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3782,21 +4260,40 @@ export default function App() {
                     <div className="form-section-title">5. Status & Remarks</div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Over all status</label>
-                        <select
-                          value={
-                            (((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
-                             ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
-                             ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed"))
-                              ? "Close"
-                              : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"))
-                          }
-                          onChange={e => setModalData({ ...modalData, overall_rfq_status: e.target.value })}
-                        >
-                          {OVERALL_STATUS_OPTIONS.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <Lock size={12} style={{ color: "#38bdf8" }} /> Over all status (Locked)
+                        </label>
+                        {(() => {
+                          const isAll = 
+                            ((modalData.query_status || "Open").toLowerCase() === "close" || (modalData.query_status || "Open").toLowerCase() === "closed") &&
+                            ((modalData.unique_status || "Open").toLowerCase() === "close" || (modalData.unique_status || "Open").toLowerCase() === "closed") &&
+                            ((modalData.costing_bom_status || "Open").toLowerCase() === "close" || (modalData.costing_bom_status || "Open").toLowerCase() === "closed");
+                          const currentStatus = isAll ? "Close" : (modalData.overall_rfq_status === "Close" ? "Open" : (modalData.overall_rfq_status || "Open"));
+                          const isClosed = currentStatus.toLowerCase() === "close" || currentStatus.toLowerCase() === "closed";
+                          return (
+                            <div
+                              style={{
+                                background: "var(--bg-input)",
+                                border: "1px solid var(--border)",
+                                borderRadius: "8px",
+                                padding: "9px 12px",
+                                fontSize: "13px",
+                                fontWeight: 600,
+                                color: isClosed ? "#4ade80" : "#38bdf8",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                userSelect: "none"
+                              }}
+                            >
+                              <Lock size={13} style={{ opacity: 0.7 }} />
+                              <span>{currentStatus}</span>
+                              <span style={{ fontSize: "11px", color: "var(--text-muted)", marginLeft: "auto", fontWeight: 400 }}>
+                                {isAll ? "All 3 Milestones Closed" : "Milestone Dependent"}
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="form-group">
                         <label className="form-label">Name (Engineer Master)</label>
@@ -3850,19 +4347,43 @@ export default function App() {
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">RFQ No.</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. RFQ618260001"
+                        <select
                           value={modalData.rfq_no || ""}
-                          onChange={e => setModalData({ ...modalData, rfq_no: e.target.value })}
-                        />
+                          onChange={e => {
+                            const val = e.target.value;
+                            const matchedRfq = rfqs.find(r => (r.sr_no || r.rfq_number) === val);
+                            setModalData({
+                              ...modalData,
+                              rfq_no: val,
+                              ...(matchedRfq ? {
+                                customer_name: matchedRfq.customer_name || modalData.customer_name || "",
+                                model_name: matchedRfq.model || modalData.model_name || "",
+                                unique_rfq_no: matchedRfq.unique_rfq_no || modalData.unique_rfq_no || "",
+                                query_status: matchedRfq.query_status || modalData.query_status || "Open",
+                                unique_status: matchedRfq.unique_status || modalData.unique_status || "Open",
+                                unique_list_share_date: matchedRfq.unique_list_share_date || modalData.unique_list_share_date || "",
+                                no_of_ckt: matchedRfq.no_of_ckt ?? modalData.no_of_ckt ?? "",
+                                volume: matchedRfq.volume ?? modalData.volume ?? ""
+                              } : {})
+                            });
+                          }}
+                        >
+                          <option value="">Select RFQ No...</option>
+                          {uniqueRfqOptions.map(rfqNo => (
+                            <option key={rfqNo} value={rfqNo}>{rfqNo}</option>
+                          ))}
+                          {modalData.rfq_no && !uniqueRfqOptions.includes(modalData.rfq_no) && (
+                            <option value={modalData.rfq_no}>{modalData.rfq_no}</option>
+                          )}
+                        </select>
                       </div>
                       <div className="form-group">
                         <label className="form-label">Stage</label>
                         <select
-                          value={modalData.stage || "sample"}
+                          value={modalData.stage || ""}
                           onChange={e => setModalData({ ...modalData, stage: e.target.value })}
                         >
+                          <option value="">--</option>
                           {ECN_STAGE_OPTIONS.map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
@@ -3875,7 +4396,17 @@ export default function App() {
                         <label className="form-label">Customer Name</label>
                         <select
                           value={modalData.customer_name || ""}
-                          onChange={e => setModalData({ ...modalData, customer_name: e.target.value })}
+                          onChange={e => {
+                            const newCust = e.target.value;
+                            const availableModels = getModelsForCustomer(newCust);
+                            const autoModel = availableModels.length > 0 ? (availableModels.includes(modalData.model_name) ? modalData.model_name : availableModels[0]) : (modalData.model_name || "");
+                            setModalData({
+                              ...modalData,
+                              customer_name: newCust,
+                              model_name: autoModel,
+                              is_custom_model: false
+                            });
+                          }}
                         >
                           <option value="">Select Customer from Customer Master...</option>
                           {customers.map(c => (
@@ -3887,13 +4418,54 @@ export default function App() {
                         </select>
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Model Name</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Scorpio-EV"
-                          value={modalData.model_name || ""}
-                          onChange={e => setModalData({ ...modalData, model_name: e.target.value })}
-                        />
+                        <label className="form-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span>Model Name</span>
+                          {modalData.is_custom_model ? (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#38bdf8", cursor: "pointer", fontSize: "11px", textDecoration: "underline" }}
+                              onClick={() => setModalData({ ...modalData, is_custom_model: false })}
+                            >
+                              Choose from list
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "11px" }}
+                              onClick={() => setModalData({ ...modalData, is_custom_model: true })}
+                            >
+                              + Type custom
+                            </button>
+                          )}
+                        </label>
+                        {modalData.is_custom_model ? (
+                          <input
+                            type="text"
+                            placeholder="Enter custom model name..."
+                            value={modalData.model_name || ""}
+                            onChange={e => setModalData({ ...modalData, model_name: e.target.value })}
+                          />
+                        ) : (
+                          <select
+                            value={modalData.model_name || ""}
+                            onChange={e => {
+                              if (e.target.value === "__custom__") {
+                                setModalData({ ...modalData, is_custom_model: true, model_name: "" });
+                              } else {
+                                setModalData({ ...modalData, model_name: e.target.value });
+                              }
+                            }}
+                          >
+                            <option value="">--</option>
+                            {getModelsForCustomer(modalData.customer_name).map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                            {modalData.model_name && !getModelsForCustomer(modalData.customer_name).includes(modalData.model_name) && modalData.model_name !== "" && (
+                              <option value={modalData.model_name}>{modalData.model_name}</option>
+                            )}
+                            <option value="__custom__">+ Enter custom model...</option>
+                          </select>
+                        )}
                       </div>
                     </div>
 
@@ -3999,12 +4571,17 @@ export default function App() {
 
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Unique RFQ No.</label>
+                        <label className="form-label">UCL No</label>
                         <input
                           type="text"
-                          placeholder="e.g. RFQ618260001"
+                          placeholder="e.g. 556, 987, 9877 (numbers only, comma separated)"
                           value={modalData.unique_rfq_no || ""}
-                          onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (!/[0-9, ]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value.replace(/[^0-9,\s]/g, "") })}
                         />
                       </div>
                       <div className="form-group">
@@ -4154,19 +4731,43 @@ export default function App() {
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">RFQ No.</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. RFQ618260001"
+                        <select
                           value={modalData.rfq_no || ""}
-                          onChange={e => setModalData({ ...modalData, rfq_no: e.target.value })}
-                        />
+                          onChange={e => {
+                            const val = e.target.value;
+                            const matchedRfq = rfqs.find(r => (r.sr_no || r.rfq_number) === val);
+                            setModalData({
+                              ...modalData,
+                              rfq_no: val,
+                              ...(matchedRfq ? {
+                                customer_name: matchedRfq.customer_name || modalData.customer_name || "",
+                                model_name: matchedRfq.model || modalData.model_name || "",
+                                unique_rfq_no: matchedRfq.unique_rfq_no || modalData.unique_rfq_no || "",
+                                query_status: matchedRfq.query_status || modalData.query_status || "Open",
+                                unique_status: matchedRfq.unique_status || modalData.unique_status || "Open",
+                                unique_list_share_date: matchedRfq.unique_list_share_date || modalData.unique_list_share_date || "",
+                                no_of_ckt: matchedRfq.no_of_ckt ?? modalData.no_of_ckt ?? "",
+                                volume: matchedRfq.volume ?? modalData.volume ?? ""
+                              } : {})
+                            });
+                          }}
+                        >
+                          <option value="">Select RFQ No...</option>
+                          {uniqueRfqOptions.map(rfqNo => (
+                            <option key={rfqNo} value={rfqNo}>{rfqNo}</option>
+                          ))}
+                          {modalData.rfq_no && !uniqueRfqOptions.includes(modalData.rfq_no) && (
+                            <option value={modalData.rfq_no}>{modalData.rfq_no}</option>
+                          )}
+                        </select>
                       </div>
                       <div className="form-group">
                         <label className="form-label">Stage</label>
                         <select
-                          value={modalData.stage || "sample"}
+                          value={modalData.stage || ""}
                           onChange={e => setModalData({ ...modalData, stage: e.target.value })}
                         >
+                          <option value="">--</option>
                           {ECN_STAGE_OPTIONS.map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
@@ -4179,7 +4780,17 @@ export default function App() {
                         <label className="form-label">Customer Name</label>
                         <select
                           value={modalData.customer_name || ""}
-                          onChange={e => setModalData({ ...modalData, customer_name: e.target.value })}
+                          onChange={e => {
+                            const newCust = e.target.value;
+                            const availableModels = getModelsForCustomer(newCust);
+                            const autoModel = availableModels.length > 0 ? (availableModels.includes(modalData.model_name) ? modalData.model_name : availableModels[0]) : (modalData.model_name || "");
+                            setModalData({
+                              ...modalData,
+                              customer_name: newCust,
+                              model_name: autoModel,
+                              is_custom_model: false
+                            });
+                          }}
                         >
                           <option value="">Select Customer from Customer Master...</option>
                           {customers.map(c => (
@@ -4191,13 +4802,54 @@ export default function App() {
                         </select>
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Model Name</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Scorpio-EV"
-                          value={modalData.model_name || ""}
-                          onChange={e => setModalData({ ...modalData, model_name: e.target.value })}
-                        />
+                        <label className="form-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span>Model Name</span>
+                          {modalData.is_custom_model ? (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#38bdf8", cursor: "pointer", fontSize: "11px", textDecoration: "underline" }}
+                              onClick={() => setModalData({ ...modalData, is_custom_model: false })}
+                            >
+                              Choose from list
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "11px" }}
+                              onClick={() => setModalData({ ...modalData, is_custom_model: true })}
+                            >
+                              + Type custom
+                            </button>
+                          )}
+                        </label>
+                        {modalData.is_custom_model ? (
+                          <input
+                            type="text"
+                            placeholder="Enter custom model name..."
+                            value={modalData.model_name || ""}
+                            onChange={e => setModalData({ ...modalData, model_name: e.target.value })}
+                          />
+                        ) : (
+                          <select
+                            value={modalData.model_name || ""}
+                            onChange={e => {
+                              if (e.target.value === "__custom__") {
+                                setModalData({ ...modalData, is_custom_model: true, model_name: "" });
+                              } else {
+                                setModalData({ ...modalData, model_name: e.target.value });
+                              }
+                            }}
+                          >
+                            <option value="">--</option>
+                            {getModelsForCustomer(modalData.customer_name).map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                            {modalData.model_name && !getModelsForCustomer(modalData.customer_name).includes(modalData.model_name) && modalData.model_name !== "" && (
+                              <option value={modalData.model_name}>{modalData.model_name}</option>
+                            )}
+                            <option value="__custom__">+ Enter custom model...</option>
+                          </select>
+                        )}
                       </div>
                     </div>
 
@@ -4303,12 +4955,17 @@ export default function App() {
 
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Unique RFQ No.</label>
+                        <label className="form-label">UCL No</label>
                         <input
                           type="text"
-                          placeholder="e.g. RFQ618260001"
+                          placeholder="e.g. 556, 987, 9877 (numbers only, comma separated)"
                           value={modalData.unique_rfq_no || ""}
-                          onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (!/[0-9, ]/.test(e.key) && !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={e => setModalData({ ...modalData, unique_rfq_no: e.target.value.replace(/[^0-9,\s]/g, "") })}
                         />
                       </div>
                       <div className="form-group">

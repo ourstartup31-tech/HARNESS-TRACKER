@@ -82,8 +82,10 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     const action = searchParams.get("action");
+    if (!id) throw new Error("ID required.");
     if (action === "restore") {
-      throw new Error("Restoring deleted RFQ records is not permitted.");
+      const rfq = RFQService.restore(Number(id));
+      return NextResponse.json({ success: true, data: rfq });
     }
     const rfq = RFQService.softDelete(Number(id));
     return NextResponse.json({ success: true, data: rfq });

@@ -43,7 +43,12 @@ export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
-    if (!id) throw new Error("ID required for delete.");
+    const action = searchParams.get("action");
+    if (!id) throw new Error("ID required.");
+    if (action === "restore") {
+      const ecn = ECNService.restore(Number(id));
+      return NextResponse.json({ success: true, data: ecn });
+    }
     const ecn = ECNService.softDelete(Number(id));
     return NextResponse.json({ success: true, data: ecn });
   } catch (error: any) {

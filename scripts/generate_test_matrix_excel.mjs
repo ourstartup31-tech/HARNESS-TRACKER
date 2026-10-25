@@ -129,6 +129,30 @@ const scenarioCatalog = {
     expected: "System saves record successfully. Costing BOM submitted date is logged with timestamp and author.",
     notes: "Workflow Gate Cleared: Valid technical baseline confirmed for commercial quotation."
   },
+  "Design Input Date cannot be earlier than Marketing Input Date (Poka-Yoke)": {
+    id: "RFQ-DATE-01",
+    module: "RFQ Tracker",
+    platform: "Web App (Desktop / Tablet)",
+    role: "Design Engineer / Marketing Lead",
+    priority: "P1",
+    scenario: "Design Input Received Date cannot be earlier than Marketing Input Received Date",
+    preconditions: "User is creating or editing an RFQ record",
+    steps: "1. In RFQ form or inline table, set Marketing Input Received Date to '2026-03-10'.\n2. Attempt to select or enter Design Input Received Date as '2026-03-05' (earlier date).\n3. Observe HTML5 min date restriction and validation banner.\n4. Set Design Input Received Date to '2026-03-10' (same day) or '2026-03-12' (later date).\n5. Save and verify successful persistence.",
+    expected: "1. Date picker sets min='2026-03-10', blocking earlier dates.\n2. Attempting to submit or enter earlier date displays error: 'Design Input Received Date cannot be earlier than Marketing Input Received Date'.\n3. Same day or later date is saved successfully.",
+    notes: "Poka-Yoke Gate: Enforces chronological sequence between Marketing input handover and Design engineering receipt."
+  },
+  "Costing BOM Shared Date cannot be earlier than Costing BOM Prepare Date (Poka-Yoke)": {
+    id: "RFQ-DATE-02",
+    module: "RFQ Tracker",
+    platform: "Web App (Desktop / Tablet)",
+    role: "Costing Engineer",
+    priority: "P1",
+    scenario: "Costing BOM Shared Date cannot be earlier than Costing BOM Prepare Date",
+    preconditions: "User is creating or editing an RFQ record",
+    steps: "1. In RFQ form or inline table, set Costing BOM Prepare Date to '2026-03-15'.\n2. Attempt to select or enter Costing BOM Shared Date as '2026-03-12' (earlier date).\n3. Observe HTML5 min date restriction and validation banner.\n4. Set Costing BOM Shared Date to '2026-03-15' (same day) or '2026-03-16' (later date).\n5. Save and verify successful persistence.",
+    expected: "1. Date picker sets min='2026-03-15', blocking earlier dates.\n2. Attempting to submit or enter earlier date displays error: 'Costing BOM Shared Date cannot be earlier than Costing BOM Prepare Date'.\n3. Same day or later date is saved successfully.",
+    notes: "Poka-Yoke Gate: Enforces chronological sequence ensuring Costing BOM is prepared before it can be shared with customer/management."
+  },
   "All 25 RFQ Tracker columns persist, support custom overrides and update": {
     id: "RFQ-03",
     module: "RFQ Tracker",
@@ -201,17 +225,17 @@ const scenarioCatalog = {
     expected: "In all cases where any milestone is not 'Close', system strictly blocks setting Overall Status to 'Close' with: 'Cannot set Overall status to Close because other milestone columns are still open'.",
     notes: "Poka-Yoke Gate: Overall RFQ closure requires 100% completion across all three sub-milestones."
   },
-  "End Date strictly greater than Starting Date validation (Poka-Yoke)": {
+  "Target Date and Actual Date cannot be earlier than Start Date, but can be the same date (Poka-Yoke)": {
     id: "RFQ-09",
     module: "RFQ Tracker",
     platform: "Web App (Desktop / Tablet)",
     role: "Design Engineer",
     priority: "P1",
-    scenario: "End Date strictly greater than Starting Date validation (Target Date & Actual Date Poka-Yoke)",
+    scenario: "Target Date and Actual Date cannot be earlier than Start Date, but can be the same date (Poka-Yoke)",
     preconditions: "User is creating or updating an RFQ",
-    steps: "1. Set Work Start Date to '2026-05-10'.\n2. Set Target Date to '2026-05-10' (same day) and try to save.\n3. Observe error message.\n4. Set Target Date to '2026-05-09' (earlier date) and try to save.\n5. Observe error message.\n6. Set Target Date to '2026-05-20' and Actual Date to '2026-05-08' (earlier than start date) and try to save.\n7. Observe error message.\n8. Set Target Date to '2026-05-20' and Actual Date to '2026-05-18' and save.",
-    expected: "1. Same-day Target Date rejected: 'Target Date (2026-05-10) must be greater than Start Date (2026-05-10)'.\n2. Earlier Target Date rejected.\n3. Earlier Actual Date rejected.\n4. Valid dates strictly greater than start date save successfully.",
-    notes: "Poka-Yoke Gate: Eliminates nonsensical or negative project timeline entries."
+    steps: "1. Set Work Start Date to '2026-05-10'.\n2. Set Target Date to '2026-05-09' (earlier date) and try to save -> Observe rejection error.\n3. Set Target Date to '2026-05-10' (same day) and Actual Date to '2026-05-10' (same day) and save -> Observe success.\n4. Set Target Date to '2026-05-20' and Actual Date to '2026-05-08' (earlier date) -> Observe rejection error.\n5. Set Target Date to '2026-05-20' and Actual Date to '2026-05-18' and save -> Observe success.",
+    expected: "1. Target Date or Actual Date earlier than Start Date is strictly rejected: 'cannot be earlier than Start Date'.\n2. Same-day Target Date and Actual Date (Start Date = Target Date = Actual Date) are allowed and save successfully.\n3. Later dates save successfully.",
+    notes: "Poka-Yoke Gate: Eliminates negative project timeline entries while supporting same-day milestones."
   },
   "Name column links with Engineer Master data and persists": {
     id: "RFQ-10",

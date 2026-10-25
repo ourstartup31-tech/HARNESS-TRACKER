@@ -158,6 +158,64 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     assert.equal(rfq.costing_bom_submitted_date, "2026-03-01");
   });
 
+  await t.test("Design Input Date cannot be earlier than Marketing Input Date (Poka-Yoke)", () => {
+    // Rejection on create
+    assert.throws(() => {
+      RFQService.create({
+        harness_id: harness.id,
+        revision_id: rev.id,
+        marketing_input_date: "2026-03-10",
+        design_input_date: "2026-03-05"
+      });
+    }, /Design Input Received Date \(2026-03-05\) cannot be earlier than Marketing Input Received Date \(2026-03-10\)/);
+
+    // Valid same day or later succeeds
+    const validRFQ = RFQService.create({
+      harness_id: harness.id,
+      revision_id: rev.id,
+      marketing_input_date: "2026-03-10",
+      design_input_date: "2026-03-10"
+    });
+    assert.ok(validRFQ.id);
+    assert.equal(validRFQ.design_input_date, "2026-03-10");
+
+    // Rejection on update
+    assert.throws(() => {
+      RFQService.update(validRFQ.id, {
+        design_input_date: "2026-03-08"
+      });
+    }, /Design Input Received Date \(2026-03-08\) cannot be earlier than Marketing Input Received Date \(2026-03-10\)/);
+  });
+
+  await t.test("Costing BOM Shared Date cannot be earlier than Costing BOM Prepare Date (Poka-Yoke)", () => {
+    // Rejection on create
+    assert.throws(() => {
+      RFQService.create({
+        harness_id: harness.id,
+        revision_id: rev.id,
+        costing_bom_prepare_date: "2026-03-15",
+        costing_bom_submitted_date: "2026-03-12"
+      });
+    }, /Costing BOM Shared Date \(2026-03-12\) cannot be earlier than Costing BOM Prepare Date \(2026-03-15\)/);
+
+    // Valid same day or later succeeds
+    const validRFQ = RFQService.create({
+      harness_id: harness.id,
+      revision_id: rev.id,
+      costing_bom_prepare_date: "2026-03-15",
+      costing_bom_submitted_date: "2026-03-16"
+    });
+    assert.ok(validRFQ.id);
+    assert.equal(validRFQ.costing_bom_submitted_date, "2026-03-16");
+
+    // Rejection on update
+    assert.throws(() => {
+      RFQService.update(validRFQ.id, {
+        costing_bom_submitted_date: "2026-03-14"
+      });
+    }, /Costing BOM Shared Date \(2026-03-14\) cannot be earlier than Costing BOM Prepare Date \(2026-03-15\)/);
+  });
+
   await t.test("All 25 RFQ Tracker columns persist, support custom overrides and update", () => {
     const customRFQ = RFQService.create({
       harness_id: harness.id,
@@ -412,32 +470,36 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     assert.equal(reopened.overall_rfq_status, "Open");
   });
 
-  await t.test("End Date strictly greater than Starting Date validation (Poka-Yoke)", () => {
-    // Target date <= start date rejected on create
+  await t.test("Target Date and Actual Date cannot be earlier than Start Date, but can be the same date (Poka-Yoke)", () => {
+    // Earlier Target Date rejected on create
     assert.throws(() => {
       RFQService.create({
         work_start_date: "2026-05-10",
-        target_date: "2026-05-10" // same day rejected
+        target_date: "2026-05-09"
       });
-    }, /Target Date \(2026-05-10\) must be greater than Start Date \(2026-05-10\)/);
+    }, /Target Date \(2026-05-09\) cannot be earlier than Start Date \(2026-05-10\)/);
 
-    assert.throws(() => {
-      RFQService.create({
-        work_start_date: "2026-05-10",
-        target_date: "2026-05-09" // earlier date rejected
-      });
-    }, /Target Date \(2026-05-09\) must be greater than Start Date \(2026-05-10\)/);
-
-    // Actual / Completion date <= start date rejected on create
+    // Earlier Actual / Completion Date rejected on create
     assert.throws(() => {
       RFQService.create({
         work_start_date: "2026-05-10",
         target_date: "2026-05-15",
         completion_date: "2026-05-08"
       });
-    }, /Actual Date \(2026-05-08\) must be greater than Start Date \(2026-05-10\)/);
+    }, /Actual Date \(2026-05-08\) cannot be earlier than Start Date \(2026-05-10\)/);
 
-    // Target date strictly greater than start date succeeds
+    // Same day for Start Date and Target Date, and same day for Start Date and Actual Date succeeds!
+    const sameDayDates = RFQService.create({
+      work_start_date: "2026-05-10",
+      target_date: "2026-05-10",
+      completion_date: "2026-05-10"
+    });
+    assert.ok(sameDayDates.id);
+    assert.equal(sameDayDates.work_start_date, "2026-05-10");
+    assert.equal(sameDayDates.target_date, "2026-05-10");
+    assert.equal(sameDayDates.completion_date, "2026-05-10");
+
+    // Later dates also succeed
     const validDates = RFQService.create({
       work_start_date: "2026-05-10",
       target_date: "2026-05-20",
@@ -447,18 +509,26 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     assert.equal(validDates.work_start_date, "2026-05-10");
     assert.equal(validDates.target_date, "2026-05-20");
 
-    // Updating to invalid date rejected
+    // Updating to earlier date rejected
     assert.throws(() => {
       RFQService.update(validDates.id, {
         target_date: "2026-05-05"
       });
-    }, /Target Date \(2026-05-05\) must be greater than Start Date \(2026-05-10\)/);
+    }, /Target Date \(2026-05-05\) cannot be earlier than Start Date \(2026-05-10\)/);
 
     assert.throws(() => {
       RFQService.update(validDates.id, {
         work_start_date: "2026-05-25" // moves start date after target date
       });
-    }, /Target Date \(2026-05-20\) must be greater than Start Date \(2026-05-25\)/);
+    }, /Target Date \(2026-05-20\) cannot be earlier than Start Date \(2026-05-25\)/);
+
+    // Updating to same day succeeds
+    const updatedSameDay = RFQService.update(validDates.id, {
+      target_date: "2026-05-10",
+      completion_date: "2026-05-10"
+    });
+    assert.equal(updatedSameDay.target_date, "2026-05-10");
+    assert.equal(updatedSameDay.completion_date, "2026-05-10");
   });
 
   await t.test("Name column links with Engineer Master data and persists", () => {
@@ -506,8 +576,8 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     assert.equal(updated.volume, 25000);
   });
 
-  await t.test("Query Type options support proposal, query, query>proposal", () => {
-    for (const qType of ["proposal", "query", "query>proposal"]) {
+  await t.test("Query Type options support proposal, query, query>proposal, and query & proposal", () => {
+    for (const qType of ["proposal", "query", "query>proposal", "query & proposal"]) {
       const r = RFQService.create({
         query_type: qType
       });
@@ -520,7 +590,7 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     }
   });
 
-  await t.test("Soft deleting an RFQ preserves unique number, sets is_deleted=1, and strictly blocks restore and update", () => {
+  await t.test("Soft deleting an RFQ preserves unique number, sets is_deleted=1, allows recovery/restore and blocks update without restore", () => {
     const nextNum = RFQService.generateNextNumber();
     const rfq = RFQService.create({
       rfq_number: nextNum,
@@ -548,17 +618,19 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     const followingNum = RFQService.generateNextNumber();
     assert.notEqual(followingNum, nextNum);
 
-    // Restore is strictly blocked!
-    assert.throws(
-      () => RFQService.restore(rfq.id),
-      /Restoring deleted RFQ records is not permitted/
-    );
-
-    // Update is strictly blocked!
+    // Update without restore is blocked!
     assert.throws(
       () => RFQService.update(rfq.id, { remark: "Attempted update on deleted row" }),
       /Cannot update a deleted RFQ record/
     );
+
+    // Accidental delete can be recovered / restored (Undo)
+    const restored = RFQService.restore(rfq.id);
+    assert.equal(restored.is_deleted, 0);
+
+    // Now update succeeds after restore
+    const updated = RFQService.update(rfq.id, { remark: "Updated after recovery" });
+    assert.equal(updated.remark, "Updated after recovery");
   });
 
   await t.test("RFQ create_ecn option creates autofilled ECN in ECN sheet when checked, and does nothing when unchecked", () => {
@@ -602,7 +674,7 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     assert.equal(createdEcns.length, 1);
     const ecn = createdEcns[0];
     assert.ok(ecn.ecn_number.startsWith("ECN-"));
-    assert.equal(ecn.stage, "sample");
+    assert.equal(ecn.stage, "");
     assert.equal(ecn.customer_name, cust.name);
     assert.equal(ecn.model_name, "Harrier EV");
     assert.equal(ecn.query_status, "Open");
@@ -615,6 +687,69 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     assert.equal(ecn.target_date, "2026-05-20");
     assert.equal(ecn.completion_date, "2026-05-18");
     assert.equal(ecn.overall_status, "Open");
+  });
+
+  await t.test("Updating an RFQ simultaneously synchronizes linked ECN records except Start, Target, and Actual Dates", () => {
+    const cust1 = CustomerService.create("Sync Customer 1");
+    const nextRfqNum = RFQService.generateNextNumber();
+    const rfq = RFQService.create({
+      rfq_number: nextRfqNum,
+      customer_name: cust1.name,
+      model: "Model-Alpha",
+      query_status: "Open",
+      unique_list_share_date: "2026-06-01",
+      unique_rfq_no: "556,987",
+      unique_status: "Open",
+      no_of_ckt: 40,
+      volume: 5000,
+      work_start_date: "2026-06-05",
+      target_date: "2026-06-20",
+      completion_date: "2026-06-18",
+      overall_rfq_status: "Open",
+      create_ecn: true
+    });
+
+    const ecnBefore = ECNService.list().find(e => e.rfq_no === nextRfqNum);
+    assert.ok(ecnBefore);
+    assert.equal(ecnBefore.customer_name, cust1.name);
+    assert.equal(ecnBefore.model_name, "Model-Alpha");
+    assert.equal(ecnBefore.unique_rfq_no, "556,987");
+
+    // ECN has its own timeline dates set
+    ECNService.update(ecnBefore.id, {
+      work_start_date: "2026-07-01",
+      target_date: "2026-07-15",
+      completion_date: "2026-07-14"
+    });
+
+    // Now update the RFQ with new details and dates
+    RFQService.update(rfq.id, {
+      customer_name: "Sync Customer Updated",
+      model: "Model-Beta",
+      query_status: "Close",
+      unique_rfq_no: "9877,1234",
+      unique_status: "Close",
+      no_of_ckt: 65,
+      volume: 15000,
+      work_start_date: "2026-08-01",
+      target_date: "2026-08-10",
+      completion_date: "2026-08-09"
+    });
+
+    // Verify linked ECN is simultaneously updated with RFQ fields
+    const ecnAfter = ECNService.list().find(e => e.id === ecnBefore.id);
+    assert.equal(ecnAfter.customer_name, "Sync Customer Updated");
+    assert.equal(ecnAfter.model_name, "Model-Beta");
+    assert.equal(ecnAfter.unique_rfq_no, "9877,1234");
+    assert.equal(ecnAfter.query_status, "Close");
+    assert.equal(ecnAfter.unique_status, "Close");
+    assert.equal(ecnAfter.no_of_ckt, 65);
+    assert.equal(ecnAfter.volume, 15000);
+
+    // BUT ECN's Start Date, Target Date, and Actual Date MUST remain preserved!
+    assert.equal(ecnAfter.work_start_date, "2026-07-01");
+    assert.equal(ecnAfter.target_date, "2026-07-15");
+    assert.equal(ecnAfter.completion_date, "2026-07-14");
   });
 });
 
@@ -757,6 +892,13 @@ test("ECN WORKFLOW & ASSIGNMENT LOCKING POKA-YOKE", async (t) => {
     // List excludes soft-deleted ECN
     const foundInList = ECNService.list().find(e => e.id === ecn.id);
     assert.equal(foundInList, undefined);
+
+    // Accidental delete can be recovered / restored (Undo)
+    const restored = ECNService.restore(ecn.id);
+    assert.equal(restored.is_deleted, 0);
+    const foundAfterRestore = ECNService.list().find(e => e.id === ecn.id);
+    assert.ok(foundAfterRestore);
+    assert.equal(foundAfterRestore.id, ecn.id);
   });
 });
 
