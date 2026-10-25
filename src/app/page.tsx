@@ -97,6 +97,7 @@ export default function App() {
   const [modalData, setModalData] = useState<any>({});
   const [modalError, setModalError] = useState<string | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: number; targetNum: string; type: "rfq" | "ecn" } | null>(null);
+  const [undoConfirmTarget, setUndoConfirmTarget] = useState<{ id: number; targetNum: string; type: "rfq" | "ecn"; isDeleted?: boolean } | null>(null);
 
   // Auto-dismiss alerts
   useEffect(() => {
@@ -302,7 +303,9 @@ export default function App() {
       setSuccessBanner(`RFQ ${rfqNum} deleted.`);
       setUndoAction({
         label: `Undo delete for ${rfqNum}`,
-        execute: () => handleRestoreRfq(id, rfqNum)
+        execute: () => {
+          setUndoConfirmTarget({ id, targetNum: rfqNum, type: "rfq", isDeleted: true });
+        }
       });
       refreshAll();
     } catch (err: any) {
@@ -333,7 +336,9 @@ export default function App() {
       setSuccessBanner(`ECN ${ecnNum} deleted.`);
       setUndoAction({
         label: `Undo delete for ${ecnNum}`,
-        execute: () => handleRestoreEcn(id, ecnNum)
+        execute: () => {
+          setUndoConfirmTarget({ id, targetNum: ecnNum, type: "ecn", isDeleted: true });
+        }
       });
       refreshAll();
     } catch (err: any) {
@@ -497,6 +502,12 @@ export default function App() {
       const bomSharedDate = (payload.costing_bom_submitted_date || payload.costing_bom_shared_date)?.trim();
       if (bomPrepDate && bomSharedDate && bomSharedDate < bomPrepDate) {
         setModalError(`Costing BOM Shared Date (${bomSharedDate}) cannot be earlier than Costing BOM Prepare Date (${bomPrepDate}).`);
+        return;
+      }
+      const qSentDate = (payload.query_submitted_date || payload.query_sent_date)?.trim();
+      const qResolveDate = (payload.reply_received_date || payload.query_resolve_date)?.trim();
+      if (qSentDate && qResolveDate && qResolveDate < qSentDate) {
+        setModalError(`Query Resolve Date (${qResolveDate}) cannot be earlier than Query Sent Date (${qSentDate}).`);
         return;
       }
       const startDate = (payload.work_start_date || payload.start_date)?.trim();
@@ -1162,7 +1173,15 @@ export default function App() {
                             className="table-date-input"
                             value={r.query_submitted_date || r.query_sent_date || ""}
                             onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                            onChange={(e) => handleInlineUpdate(r.id, { query_submitted_date: e.target.value })}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const resolveDate = r.reply_received_date || r.query_resolve_date;
+                              if (val && resolveDate && resolveDate < val) {
+                                setErrorBanner(`Query Sent Date (${val}) cannot be later than existing Query Resolve Date (${resolveDate}).`);
+                                return;
+                              }
+                              handleInlineUpdate(r.id, { query_submitted_date: val });
+                            }}
                           />
                         </td>
                         <td style={{ minWidth: "135px", padding: "4px" }}>
@@ -1170,8 +1189,17 @@ export default function App() {
                             type="date"
                             className="table-date-input"
                             value={r.reply_received_date || r.query_resolve_date || ""}
+                            min={r.query_submitted_date || r.query_sent_date || undefined}
                             onClick={(e) => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                            onChange={(e) => handleInlineUpdate(r.id, { reply_received_date: e.target.value })}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const sentDate = r.query_submitted_date || r.query_sent_date;
+                              if (val && sentDate && val < sentDate) {
+                                setErrorBanner(`Query Resolve Date (${val}) cannot be earlier than Query Sent Date (${sentDate}).`);
+                                return;
+                              }
+                              handleInlineUpdate(r.id, { reply_received_date: val });
+                            }}
                           />
                         </td>
                         <td style={{ minWidth: "150px", padding: "4px" }}>
@@ -1485,63 +1513,94 @@ export default function App() {
                           />
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
-                          {r.is_deleted ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span className="badge badge-danger" style={{ padding: "4px 8px", fontSize: "11px", fontWeight: 700 }}>
-                                Deleted
-                              </span>
-                              <button
-                                className="btn btn-outline"
-                                style={{ padding: "4px 8px", fontSize: "11px", color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)", display: "flex", alignItems: "center", gap: "4px" }}
-                                title="Undo / Recover deleted RFQ"
-                                onClick={() => handleRestoreRfq(r.id, r.sr_no || r.rfq_number)}
-                              >
-                                <RotateCcw size={12} /> Undo
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", gap: "6px" }}>
-                              <button
-                                className="btn btn-outline"
-                                style={{ padding: "4px 8px", fontSize: "11px" }}
-                                onClick={() => {
-                                  const isAll = (r.query_status?.toLowerCase() === "close" || r.query_status?.toLowerCase() === "closed") &&
-                                    (r.unique_status?.toLowerCase() === "close" || r.unique_status?.toLowerCase() === "closed") &&
-                                    (r.costing_bom_status?.toLowerCase() === "close" || r.costing_bom_status?.toLowerCase() === "closed");
-                                  setModalType("edit_rfq");
-                                  setModalData({
-                                    ...r,
-                                    overall_rfq_status: isAll ? "Close" : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open")),
-                                    customer_name: r.customer_name || "",
-                                    sr_no: r.sr_no || r.rfq_number || "",
-                                    unique_rfq_no: r.unique_rfq_no || "",
-                                    drawing_number: r.drawing_number || "",
-                                    model: r.model || r.model_name || "",
-                                    harness_part_no: r.harness_part_no || r.harness_number || "",
-                                    customer_revision: r.customer_revision || r.revision_code || "",
-                                    fg_code: r.fg_code || "",
-                                    fg_rev: r.fg_rev || "",
-                                    description: r.description || "",
-                                    engineer_id: r.engineer_id || "",
-                                    engineer_name: r.engineer_name || "",
-                                    no_of_ckt: r.no_of_ckt !== undefined && r.no_of_ckt !== null ? String(r.no_of_ckt) : (r.circuit_count ? String(r.circuit_count) : ""),
-                                    volume: r.volume !== undefined && r.volume !== null ? String(r.volume) : "",
-                                    review_note: r.review_note || "",
-                                  });
-                                }}
-                              >
-                                Update
-                              </button>
-                              <button
-                                className="btn btn-outline"
-                                style={{ padding: "4px 8px", fontSize: "11px", color: "#f87171", borderColor: "rgba(239, 68, 68, 0.4)" }}
-                                title="Delete RFQ"
-                                onClick={() => setDeleteConfirmTarget({ id: r.id, targetNum: r.sr_no || r.rfq_number, type: "rfq" })}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                opacity: r.is_deleted ? 0.45 : 1,
+                                cursor: r.is_deleted ? "not-allowed" : "pointer"
+                              }}
+                              disabled={!!r.is_deleted}
+                              title={r.is_deleted ? "Cannot update deleted row" : "Update RFQ"}
+                              onClick={() => {
+                                if (r.is_deleted) return;
+                                const isAll = (r.query_status?.toLowerCase() === "close" || r.query_status?.toLowerCase() === "closed") &&
+                                  (r.unique_status?.toLowerCase() === "close" || r.unique_status?.toLowerCase() === "closed") &&
+                                  (r.costing_bom_status?.toLowerCase() === "close" || r.costing_bom_status?.toLowerCase() === "closed");
+                                setModalType("edit_rfq");
+                                setModalData({
+                                  ...r,
+                                  overall_rfq_status: isAll ? "Close" : (r.overall_rfq_status === "Close" ? "Open" : (r.overall_rfq_status || "Open")),
+                                  customer_name: r.customer_name || "",
+                                  sr_no: r.sr_no || r.rfq_number || "",
+                                  unique_rfq_no: r.unique_rfq_no || "",
+                                  drawing_number: r.drawing_number || "",
+                                  model: r.model || r.model_name || "",
+                                  harness_part_no: r.harness_part_no || r.harness_number || "",
+                                  customer_revision: r.customer_revision || r.revision_code || "",
+                                  fg_code: r.fg_code || "",
+                                  fg_rev: r.fg_rev || "",
+                                  description: r.description || "",
+                                  engineer_id: r.engineer_id || "",
+                                  engineer_name: r.engineer_name || "",
+                                  no_of_ckt: r.no_of_ckt !== undefined && r.no_of_ckt !== null ? String(r.no_of_ckt) : (r.circuit_count ? String(r.circuit_count) : ""),
+                                  volume: r.volume !== undefined && r.volume !== null ? String(r.volume) : "",
+                                  review_note: r.review_note || "",
+                                });
+                              }}
+                            >
+                              Update
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                color: r.is_deleted ? "var(--text-muted)" : "#f87171",
+                                borderColor: r.is_deleted ? "var(--border)" : "rgba(239, 68, 68, 0.4)",
+                                opacity: r.is_deleted ? 0.45 : 1,
+                                cursor: r.is_deleted ? "not-allowed" : "pointer"
+                              }}
+                              disabled={!!r.is_deleted}
+                              title={r.is_deleted ? "Already deleted" : "Delete RFQ"}
+                              onClick={() => {
+                                if (r.is_deleted) return;
+                                setDeleteConfirmTarget({ id: r.id, targetNum: r.sr_no || r.rfq_number, type: "rfq" });
+                              }}
+                            >
+                              Delete
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                color: r.is_deleted ? "#4ade80" : "#38bdf8",
+                                borderColor: r.is_deleted ? "rgba(34, 197, 94, 0.6)" : "rgba(56, 189, 248, 0.4)",
+                                background: r.is_deleted ? "rgba(34, 197, 94, 0.15)" : "transparent",
+                                fontWeight: r.is_deleted ? 700 : 500
+                              }}
+                              title={r.is_deleted ? "Undo delete / Recover this RFQ" : "Undo delete (recovers if deleted)"}
+                              onClick={() => {
+                                setUndoConfirmTarget({
+                                  id: r.id,
+                                  targetNum: r.sr_no || r.rfq_number,
+                                  type: "rfq",
+                                  isDeleted: !!r.is_deleted
+                                });
+                              }}
+                            >
+                              <RotateCcw size={12} /> Undo
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2020,47 +2079,78 @@ export default function App() {
                             }}
                           />
                         </td>
-                        <td style={{ minWidth: "140px", padding: "4px" }}>
-                          {e.is_deleted ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span className="badge badge-danger" style={{ padding: "4px 8px", fontSize: "11px", fontWeight: 700 }}>
-                                Deleted
-                              </span>
-                              <button
-                                className="btn btn-outline"
-                                style={{ padding: "4px 8px", fontSize: "11px", color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)", display: "flex", alignItems: "center", gap: "4px" }}
-                                title="Undo / Recover deleted ECN"
-                                onClick={() => handleRestoreEcn(e.id, e.ecn_number || String(e.id))}
-                              >
-                                <RotateCcw size={12} /> Undo
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", gap: "6px" }}>
-                              <button
-                                className="btn btn-outline"
-                                style={{ padding: "4px 8px", fontSize: "11px" }}
-                                onClick={() => {
-                                  setModalType("edit_ecn");
-                                  setModalData({
-                                    ...e,
-                                    no_of_ckt: e.no_of_ckt !== undefined && e.no_of_ckt !== null ? String(e.no_of_ckt) : "",
-                                    volume: e.volume !== undefined && e.volume !== null ? String(e.volume) : ""
-                                  });
-                                }}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                className="btn btn-outline"
-                                style={{ padding: "4px 8px", fontSize: "11px", color: "#f87171", borderColor: "rgba(239, 68, 68, 0.4)" }}
-                                title="Delete ECN"
-                                onClick={() => setDeleteConfirmTarget({ id: e.id, targetNum: e.ecn_number || String(e.id), type: "ecn" })}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
+                        <td style={{ minWidth: "140px", padding: "4px", whiteSpace: "nowrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                opacity: e.is_deleted ? 0.45 : 1,
+                                cursor: e.is_deleted ? "not-allowed" : "pointer"
+                              }}
+                              disabled={!!e.is_deleted}
+                              title={e.is_deleted ? "Cannot update deleted ECN" : "Update ECN"}
+                              onClick={() => {
+                                if (e.is_deleted) return;
+                                setModalType("edit_ecn");
+                                setModalData({
+                                  ...e,
+                                  no_of_ckt: e.no_of_ckt !== undefined && e.no_of_ckt !== null ? String(e.no_of_ckt) : "",
+                                  volume: e.volume !== undefined && e.volume !== null ? String(e.volume) : ""
+                                });
+                              }}
+                            >
+                              Update
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                color: e.is_deleted ? "var(--text-muted)" : "#f87171",
+                                borderColor: e.is_deleted ? "var(--border)" : "rgba(239, 68, 68, 0.4)",
+                                opacity: e.is_deleted ? 0.45 : 1,
+                                cursor: e.is_deleted ? "not-allowed" : "pointer"
+                              }}
+                              disabled={!!e.is_deleted}
+                              title={e.is_deleted ? "Already deleted" : "Delete ECN"}
+                              onClick={() => {
+                                if (e.is_deleted) return;
+                                setDeleteConfirmTarget({ id: e.id, targetNum: e.ecn_number || String(e.id), type: "ecn" });
+                              }}
+                            >
+                              Delete
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                color: e.is_deleted ? "#4ade80" : "#38bdf8",
+                                borderColor: e.is_deleted ? "rgba(34, 197, 94, 0.6)" : "rgba(56, 189, 248, 0.4)",
+                                background: e.is_deleted ? "rgba(34, 197, 94, 0.15)" : "transparent",
+                                fontWeight: e.is_deleted ? 700 : 500
+                              }}
+                              title={e.is_deleted ? "Undo delete / Recover this ECN" : "Undo delete (recovers if deleted)"}
+                              onClick={() => {
+                                setUndoConfirmTarget({
+                                  id: e.id,
+                                  targetNum: e.ecn_number || String(e.id),
+                                  type: "ecn",
+                                  isDeleted: !!e.is_deleted
+                                });
+                              }}
+                            >
+                              <RotateCcw size={12} /> Undo
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -3512,7 +3602,15 @@ export default function App() {
                           value={modalData.query_submitted_date || ""}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, query_submitted_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.reply_received_date && modalData.reply_received_date < val) {
+                              setModalError(`Query Sent Date (${val}) cannot be later than existing Query Resolve Date (${modalData.reply_received_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, query_submitted_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -3522,9 +3620,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.reply_received_date || ""}
+                          min={modalData.query_submitted_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, reply_received_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.query_submitted_date && val < modalData.query_submitted_date) {
+                              setModalError(`Query Resolve Date (${val}) cannot be earlier than Query Sent Date (${modalData.query_submitted_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, reply_received_date: val });
+                          }}
                         />
                       </div>
                     </div>
@@ -4101,7 +4208,15 @@ export default function App() {
                           value={modalData.query_submitted_date || ""}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, query_submitted_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.reply_received_date && modalData.reply_received_date < val) {
+                              setModalError(`Query Sent Date (${val}) cannot be later than existing Query Resolve Date (${modalData.reply_received_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, query_submitted_date: val });
+                          }}
                         />
                       </div>
                       <div className="form-group">
@@ -4111,9 +4226,18 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.reply_received_date || ""}
+                          min={modalData.query_submitted_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
-                          onChange={e => setModalData({ ...modalData, reply_received_date: e.target.value })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val && modalData.query_submitted_date && val < modalData.query_submitted_date) {
+                              setModalError(`Query Resolve Date (${val}) cannot be earlier than Query Sent Date (${modalData.query_submitted_date}).`);
+                              return;
+                            }
+                            setModalError(null);
+                            setModalData({ ...modalData, reply_received_date: val });
+                          }}
                         />
                       </div>
                     </div>
@@ -5359,6 +5483,70 @@ export default function App() {
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM UNDO / RECOVER CONFIRMATION POPUP MODAL */}
+      {undoConfirmTarget && (
+        <div className="modal-overlay" onClick={() => setUndoConfirmTarget(null)}>
+          <div
+            className="modal-container"
+            style={{ maxWidth: "430px", border: "1px solid rgba(34, 197, 94, 0.4)", boxShadow: "0 10px 30px rgba(0, 0, 0, 0.8)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header" style={{ borderBottom: "1px solid rgba(34, 197, 94, 0.2)" }}>
+              <div className="modal-title" style={{ color: "#4ade80", display: "flex", alignItems: "center", gap: "8px" }}>
+                <RotateCcw size={18} /> Recover / Undo {undoConfirmTarget.type === "ecn" ? "ECN" : "RFQ"}
+              </div>
+              <button className="modal-close" onClick={() => setUndoConfirmTarget(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "20px" }}>
+              <p style={{ fontSize: "14px", color: "var(--text-main)", margin: 0, lineHeight: 1.5 }}>
+                {undoConfirmTarget.isDeleted ? (
+                  <>
+                    Are you sure you want to recover and restore {undoConfirmTarget.type === "ecn" ? "ECN" : "RFQ"}{" "}
+                    <span style={{ color: "#4ade80", fontWeight: 700 }}>{undoConfirmTarget.targetNum}</span>?
+                  </>
+                ) : (
+                  <>
+                    Do you want to recover / restore {undoConfirmTarget.type === "ecn" ? "ECN" : "RFQ"}{" "}
+                    <span style={{ color: "#38bdf8", fontWeight: 700 }}>{undoConfirmTarget.targetNum}</span>?
+                  </>
+                )}
+              </p>
+              <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "10px", marginBottom: 0 }}>
+                {undoConfirmTarget.isDeleted
+                  ? "This will un-delete the record and restore it back to the active list."
+                  : "This record is active. Confirming will refresh and verify its active status."}
+              </p>
+            </div>
+            <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setUndoConfirmTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                style={{ background: "#22c55e", color: "#000", fontWeight: 600, borderColor: "#22c55e" }}
+                onClick={() => {
+                  if (undoConfirmTarget.type === "ecn") {
+                    handleRestoreEcn(undoConfirmTarget.id, undoConfirmTarget.targetNum);
+                  } else {
+                    handleRestoreRfq(undoConfirmTarget.id, undoConfirmTarget.targetNum);
+                  }
+                  setUndoConfirmTarget(null);
+                }}
+              >
+                Confirm Recover
               </button>
             </div>
           </div>

@@ -383,6 +383,13 @@ export const RFQService = {
       throw new Error(`Costing BOM Shared Date (${bomSharedDate}) cannot be earlier than Costing BOM Prepare Date (${bomPrepDate}).`);
     }
 
+    // POKA-YOKE: Query Resolve Date >= Query Sent Date
+    const querySentDate = (data.query_submitted_date || data.query_sent_date)?.trim() || null;
+    const queryResolveDate = (data.reply_received_date || data.query_resolve_date)?.trim() || null;
+    if (querySentDate && queryResolveDate && queryResolveDate < querySentDate) {
+      throw new Error(`Query Resolve Date (${queryResolveDate}) cannot be earlier than Query Sent Date (${querySentDate}).`);
+    }
+
     // POKA-YOKE: Blocking query check!
     const queryYes = data.query_yes_no ? 1 : 0;
     const queryStatus = data.query_status || "Open";
@@ -538,6 +545,17 @@ export const RFQService = {
       : rfq.costing_bom_submitted_date)?.trim() || null;
     if (bomPrepDate && bomSharedDate && bomSharedDate < bomPrepDate) {
       throw new Error(`Costing BOM Shared Date (${bomSharedDate}) cannot be earlier than Costing BOM Prepare Date (${bomPrepDate}).`);
+    }
+
+    // POKA-YOKE: Query Resolve Date >= Query Sent Date
+    const querySentDate = ((data.query_submitted_date !== undefined ? data.query_submitted_date : data.query_sent_date) !== undefined
+      ? (data.query_submitted_date || data.query_sent_date)
+      : (rfq.query_submitted_date || rfq.query_sent_date))?.trim() || null;
+    const queryResolveDate = ((data.reply_received_date !== undefined ? data.reply_received_date : data.query_resolve_date) !== undefined
+      ? (data.reply_received_date || data.query_resolve_date)
+      : (rfq.reply_received_date || rfq.query_resolve_date))?.trim() || null;
+    if (querySentDate && queryResolveDate && queryResolveDate < querySentDate) {
+      throw new Error(`Query Resolve Date (${queryResolveDate}) cannot be earlier than Query Sent Date (${querySentDate}).`);
     }
 
     const queryYes = data.query_yes_no !== undefined ? (data.query_yes_no ? 1 : 0) : rfq.query_yes_no;
@@ -828,8 +846,9 @@ export const ECNService = {
     return `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
   },
 
-  list() {
+  list(includeDeleted = false) {
     const db = getDb();
+    const whereClause = includeDeleted ? "" : "WHERE COALESCE(e.is_deleted, 0) = 0";
     const ecns = db.prepare(`
       SELECT e.*, 
         COALESCE(e.customer_name, c.name, '') as customer_name,
@@ -870,7 +889,7 @@ export const ECNService = {
       LEFT JOIN rfqs r ON e.rfq_id = r.id
       LEFT JOIN projects p ON h.project_id = p.id
       LEFT JOIN customers c ON p.customer_id = c.id
-      WHERE COALESCE(e.is_deleted, 0) = 0
+      ${whereClause}
       ORDER BY e.id DESC
     `).all() as any[];
 

@@ -3,7 +3,7 @@ import { ECNService } from "@/lib/services";
 
 export async function GET() {
   try {
-    const data = ECNService.list();
+    const data = ECNService.list(true);
     return NextResponse.json({ success: true, data });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 400 });

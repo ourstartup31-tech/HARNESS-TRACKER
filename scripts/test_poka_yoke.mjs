@@ -216,6 +216,45 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     }, /Costing BOM Shared Date \(2026-03-14\) cannot be earlier than Costing BOM Prepare Date \(2026-03-15\)/);
   });
 
+  await t.test("Query Resolve Date cannot be earlier than Query Sent Date, but can be the same date (Poka-Yoke)", () => {
+    // Rejection on create
+    assert.throws(() => {
+      RFQService.create({
+        harness_id: harness.id,
+        revision_id: rev.id,
+        query_submitted_date: "2026-03-20",
+        reply_received_date: "2026-03-18"
+      });
+    }, /Query Resolve Date \(2026-03-18\) cannot be earlier than Query Sent Date \(2026-03-20\)/);
+
+    // Valid same day succeeds
+    const sameDayRFQ = RFQService.create({
+      harness_id: harness.id,
+      revision_id: rev.id,
+      query_submitted_date: "2026-03-20",
+      reply_received_date: "2026-03-20"
+    });
+    assert.ok(sameDayRFQ.id);
+    assert.equal(sameDayRFQ.reply_received_date, "2026-03-20");
+
+    // Valid later date succeeds
+    const laterRFQ = RFQService.create({
+      harness_id: harness.id,
+      revision_id: rev.id,
+      query_submitted_date: "2026-03-20",
+      reply_received_date: "2026-03-22"
+    });
+    assert.ok(laterRFQ.id);
+    assert.equal(laterRFQ.reply_received_date, "2026-03-22");
+
+    // Rejection on update
+    assert.throws(() => {
+      RFQService.update(laterRFQ.id, {
+        reply_received_date: "2026-03-19"
+      });
+    }, /Query Resolve Date \(2026-03-19\) cannot be earlier than Query Sent Date \(2026-03-20\)/);
+  });
+
   await t.test("All 25 RFQ Tracker columns persist, support custom overrides and update", () => {
     const customRFQ = RFQService.create({
       harness_id: harness.id,
