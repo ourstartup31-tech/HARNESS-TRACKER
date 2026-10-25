@@ -10,7 +10,8 @@
     "test": "npx tsx scripts/test_poka_yoke.mjs",
     "update-tests": "node scripts/generate_test_matrix_excel.mjs",
     "update:tests": "node scripts/generate_test_matrix_excel.mjs",
-    "db:reset": "node scripts/reset_db.mjs"
+    "db:reset": "node scripts/reset_db.mjs",
+    "db:clean": "node scripts/clean_mock_data.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",
