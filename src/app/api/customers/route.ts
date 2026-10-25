@@ -31,3 +31,15 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 400 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    if (!id) throw new Error("Customer ID is required.");
+    const result = CustomerService.delete(Number(id));
+    return NextResponse.json({ success: true, data: result });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+  }
+}

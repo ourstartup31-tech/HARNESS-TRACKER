@@ -2,7 +2,7 @@
 
 > **Testing Reference Sheet & Poka-Yoke Validation Guide**  
 > **Last Synchronized:** 2026-10-25  
-> **Total Scenarios:** 37 (Automated Poka-Yoke Tests: 32, System & UI Tests: 5)  
+> **Total Scenarios:** 45 (Automated Poka-Yoke Tests: 40, System & UI Tests: 5)  
 > 
 > **Downloadable Testing Spreadsheets:**
 > * 📊 [Harness_Engineering_Tracker_Test_Scenarios_Matrix.xlsx](file:///D:/HARNESS-TRACKER/docs/Harness_Engineering_Tracker_Test_Scenarios_Matrix.xlsx)
@@ -38,6 +38,7 @@
 | **MD-01** | Master Data & Hierarchy | **P1** | System Admin / Engineering Lead | Customer creation, duplicate rejection (case-insensitive), and historical deactivation | Poka-Yoke: Case-insensitive unique constraint prevents duplicate customer silos. | `Pass` |
 | **MD-02** | Master Data & Hierarchy | **P1** | Design Engineer | Identical model names under different customers remain strictly separate projects | Poka-Yoke: Composite unique constraint UNIQUE(customer_id, model_name) ensures model scoping per customer. | `Pass` |
 | **MD-03** | Master Data & Hierarchy | **P1** | Design Engineer | Global harness number company-wide uniqueness enforcement | Poka-Yoke: Global unique constraint on harness_number across the entire company database. | `Pass` |
+| **AUTO-4** | Automated Suite | **P1** | Design / QA Engineer | Particular customer, model, and engineer can be deleted from Master Data | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
 | **RC-01** | Revision Control | **P1** | Design Engineer | Harness multi-revision recording and historical revision immutability | Traceability: Each revision retains its distinct drawing, volume, and SOP metadata. | `Pass` |
 | **RC-02** | Revision Control | **P1** | Design Engineer | Second Active revision creation strict blocking (Single Active Revision Poka-Yoke) | Poka-Yoke Gate: Prevents production line and ERP from ever seeing two competing active drawings. | `Pass` |
 | **RC-03** | Revision Control | **P1** | Design Engineer | Activating new revision succeeds after manual obsolescence of prior active revision | Controlled Revision Handover: Requires intentional obsolescence before commissioning new active rev. | `Pass` |
@@ -45,7 +46,7 @@
 | **RFQ-02** | RFQ Tracker | **P1** | Costing Engineer / Design Lead | Costing BOM submission permitted immediately upon query resolution | Workflow Gate Cleared: Valid technical baseline confirmed for commercial quotation. | `Pass` |
 | **RFQ-DATE-01** | RFQ Tracker | **P1** | Design Engineer / Marketing Lead | Design Input Received Date cannot be earlier than Marketing Input Received Date | Poka-Yoke Gate: Enforces chronological sequence between Marketing input handover and Design engineering receipt. | `Pass` |
 | **RFQ-DATE-02** | RFQ Tracker | **P1** | Costing Engineer | Costing BOM Shared Date cannot be earlier than Costing BOM Prepare Date | Poka-Yoke Gate: Enforces chronological sequence ensuring Costing BOM is prepared before it can be shared with customer/management. | `Pass` |
-| **AUTO-11** | Automated Suite | **P1** | Design / QA Engineer | Query Resolve Date cannot be earlier than Query Sent Date, but can be the same date (Poka-Yoke) | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-12** | Automated Suite | **P1** | Design / QA Engineer | Query Resolve Date cannot be earlier than Query Sent Date, but can be the same date (Poka-Yoke) | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
 | **RFQ-03** | RFQ Tracker | **P1** | Design Engineer | All 25 RFQ Tracker columns persist, support custom overrides and update | Full DESPL RFQ Tracker Schema Compliance: 25 distinct engineering columns. | `Pass` |
 | **RFQ-04** | RFQ Tracker | **P1** | Design Engineer | RFQ sequential auto-numbering generation format 'RFQ618260001' and sequential incrementing | Auto-Numbering Standard: 13-character deterministic format with 4-digit sequential padding. | `Pass` |
 | **RFQ-05** | RFQ Tracker | **P1** | Design Engineer | Unconstrained free-text fields for Part No, Customer Rev, FG Code, FG Rev, Description | Engineering Freedom: Allows quoting legacy, prototype, or customer-specific nomenclature freely. | `Pass` |
@@ -55,15 +56,22 @@
 | **RFQ-09** | RFQ Tracker | **P1** | Design Engineer | Target Date and Actual Date cannot be earlier than Start Date, but can be the same date (Poka-Yoke) | Poka-Yoke Gate: Eliminates negative project timeline entries while supporting same-day milestones. | `Pass` |
 | **RFQ-10** | RFQ Tracker | **P2** | Design Engineer | Engineer Assignment linked with Engineer Master directory | Relational integrity: engineer_id foreign key ensures reporting consistency. | `Pass` |
 | **RFQ-11** | RFQ Tracker | **P2** | Design Engineer | Circuit Count and Volume numeric sanitization (stripping non-digit characters) | Data Sanitization: Protects reporting and sorting algorithms from parse errors. | `Pass` |
-| **AUTO-21** | Automated Suite | **P1** | Design / QA Engineer | Query Type options support proposal, query, query>proposal, and query & proposal | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
-| **AUTO-22** | Automated Suite | **P1** | Design / QA Engineer | Soft deleting an RFQ preserves unique number, sets is_deleted=1, allows recovery/restore and blocks update without restore | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-22** | Automated Suite | **P1** | Design / QA Engineer | Query Type options support proposal, query, query>proposal, and query & proposal | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-23** | Automated Suite | **P1** | Design / QA Engineer | Soft deleting an RFQ preserves unique number, sets is_deleted=1, allows recovery/restore and blocks update without restore | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
 | **RFQ-14** | RFQ Tracker | **P1** | Design Engineer | Automatic ECN creation triggered by RFQ 'create_ecn' checkbox | Seamless Pipeline: Bridges commercial RFQ approval straight into technical ECN execution. | `Pass` |
-| **AUTO-24** | Automated Suite | **P1** | Design / QA Engineer | Updating an RFQ simultaneously synchronizes linked ECN records except Start, Target, and Actual Dates | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-25** | Automated Suite | **P1** | Design / QA Engineer | Updating an RFQ simultaneously synchronizes linked ECN records except Start, Target, and Actual Dates | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
 | **ECN-01** | ECN Workflow | **P1** | Design Engineer | Mandatory Change/Reason validation on ECN creation | Poka-Yoke: Unjustified engineering changes cannot be initiated. | `Pass` |
 | **ECN-02** | ECN Workflow | **P1** | Design Engineer | Costing Required demands mandatory linked RFQ | Poka-Yoke: Prevents unquoted cost-bearing changes from proceeding without an approved RFQ. | `Pass` |
 | **ECN-03** | ECN Workflow | **P1** | Engineering Lead | Primary Engineer reassignment strictly locked once Work Start Date is recorded | Poka-Yoke: Locks accountability to original assigned engineer; additional help must use Support Engineer field. | `Pass` |
 | **ECN-04** | ECN Workflow | **P1** | Design Engineer | Mandatory Delay Reason when MIN Meeting Date exceeds Target Date | Poka-Yoke Gate: Enforces transparent accountability for schedule slippages. | `Pass` |
-| **ECN-05** | ECN Workflow | **P2** | Design Engineer | ECN Tracker 23 columns persist, list in sequence, update inline, and soft-delete | Full ECN Lifecycle: Handles sample, modification, pilot, and design VAVE stages seamlessly. | `Pass` |
+| **AUTO-30** | Automated Suite | **P1** | Design / QA Engineer | ECN Tracker 30 columns persist, list in sequence, update inline, and soft-delete | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-31** | Automated Suite | **P1** | Design / QA Engineer | ECN Sheet RFQ No search and filtering when more than 5 RFQ numbers exist | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-32** | Automated Suite | **P1** | Design / QA Engineer | SAP BOM Upload Date must be equal to or earlier than SAP BOM Released Date | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-33** | Automated Suite | **P1** | Design / QA Engineer | PRD BOM Release Date cannot be earlier than SAP BOM Released Date | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-34** | Automated Suite | **P1** | Design / QA Engineer | Label Upload Date cannot be earlier than SAP BOM Released Date | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-35** | Automated Suite | **P1** | Design / QA Engineer | MIN by Engineer Date cannot be earlier than Label Upload Date | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-36** | Automated Suite | **P1** | Design / QA Engineer | MIN by PPC Date cannot be earlier than MIN by Engineer Date | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
+| **AUTO-37** | Automated Suite | **P1** | Design / QA Engineer | ECNService.update enforces date locks during partial/inline updates against existing data | Auto-synced from scripts/test_poka_yoke.mjs | `Pass` |
 | **BOM-01** | SAP BOM & Labels | **P1** | BOM / PPC Engineer | Sequential alternate validation per FG Code ('01' -> '02' -> '03', skipping blocked) | Poka-Yoke: Eliminates broken BOM revision sequences in SAP ERP. | `Pass` |
 | **BOM-02** | SAP BOM & Labels | **P1** | Quality / Packaging Engineer | Label upload strictly blocked before official BOM release date is stamped | Poka-Yoke Gate: Labeling / barcoding can never precede an authorized and frozen Bill of Materials. | `Pass` |
 | **KIT-02** | MIN & Kit List | **P1** | PPC Lead / Store Manager | Recording MIN meeting concludes ECN and permits Consolidated Kit generation and physical rack filing | End-to-End Handover: Concludes engineering change and files physical/digital production kit. | `Pass` |

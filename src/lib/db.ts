@@ -157,10 +157,17 @@ function initSchema(db: DatabaseSync) {
       stage TEXT NOT NULL DEFAULT 'sample',
       customer_name TEXT,
       model_name TEXT,
+      drawing_number TEXT,
+      harness_part_number TEXT,
+      customer_revision TEXT,
+      fg_code TEXT,
+      fg_rev TEXT,
+      description TEXT,
       query_status TEXT NOT NULL DEFAULT 'Open',
       unique_list_share_date TEXT,
       unique_rfq_no TEXT,
       unique_status TEXT NOT NULL DEFAULT 'Open',
+      sap_bom_alternate TEXT,
       sap_bom_upload_date TEXT,
       sap_bom_released_date TEXT,
       prd_bom_release_date TEXT,
@@ -637,10 +644,17 @@ function initSchema(db: DatabaseSync) {
   addEcnCol("stage", "TEXT NOT NULL DEFAULT 'sample'");
   addEcnCol("customer_name", "TEXT");
   addEcnCol("model_name", "TEXT");
+  addEcnCol("drawing_number", "TEXT");
+  addEcnCol("harness_part_number", "TEXT");
+  addEcnCol("customer_revision", "TEXT");
+  addEcnCol("fg_code", "TEXT");
+  addEcnCol("fg_rev", "TEXT");
+  addEcnCol("description", "TEXT");
   addEcnCol("query_status", "TEXT NOT NULL DEFAULT 'Open'");
   addEcnCol("unique_list_share_date", "TEXT");
   addEcnCol("unique_rfq_no", "TEXT");
   addEcnCol("unique_status", "TEXT NOT NULL DEFAULT 'Open'");
+  addEcnCol("sap_bom_alternate", "TEXT");
   addEcnCol("sap_bom_upload_date", "TEXT");
   addEcnCol("sap_bom_released_date", "TEXT");
   addEcnCol("prd_bom_release_date", "TEXT");
@@ -654,7 +668,7 @@ function initSchema(db: DatabaseSync) {
   addEcnCol("volume", "INTEGER");
   addEcnCol("is_deleted", "INTEGER NOT NULL DEFAULT 0");
 
-  // Sync existing customer_name, model_name, and rfq_no for existing ECNs
+  // Sync existing customer_name, model_name, rfq_no, and RFQ fields for existing ECNs
   try {
     db.exec(`
       UPDATE ecns
@@ -679,6 +693,16 @@ function initSchema(db: DatabaseSync) {
         SELECT COALESCE(r.sr_no, r.rfq_number) FROM rfqs r WHERE r.id = ecns.rfq_id
       )
       WHERE (rfq_no IS NULL OR rfq_no = '') AND rfq_id IS NOT NULL;
+
+      UPDATE ecns
+      SET 
+        drawing_number = COALESCE(drawing_number, (SELECT r.drawing_number FROM rfqs r WHERE r.id = ecns.rfq_id OR (COALESCE(r.sr_no, r.rfq_number) = ecns.rfq_no AND ecns.rfq_no IS NOT NULL AND ecns.rfq_no != ''))),
+        harness_part_number = COALESCE(harness_part_number, (SELECT COALESCE(r.harness_part_no, '') FROM rfqs r WHERE r.id = ecns.rfq_id OR (COALESCE(r.sr_no, r.rfq_number) = ecns.rfq_no AND ecns.rfq_no IS NOT NULL AND ecns.rfq_no != ''))),
+        customer_revision = COALESCE(customer_revision, (SELECT COALESCE(r.customer_revision, '') FROM rfqs r WHERE r.id = ecns.rfq_id OR (COALESCE(r.sr_no, r.rfq_number) = ecns.rfq_no AND ecns.rfq_no IS NOT NULL AND ecns.rfq_no != ''))),
+        fg_code = COALESCE(fg_code, (SELECT COALESCE(r.fg_code, '') FROM rfqs r WHERE r.id = ecns.rfq_id OR (COALESCE(r.sr_no, r.rfq_number) = ecns.rfq_no AND ecns.rfq_no IS NOT NULL AND ecns.rfq_no != ''))),
+        fg_rev = COALESCE(fg_rev, (SELECT COALESCE(r.fg_rev, '') FROM rfqs r WHERE r.id = ecns.rfq_id OR (COALESCE(r.sr_no, r.rfq_number) = ecns.rfq_no AND ecns.rfq_no IS NOT NULL AND ecns.rfq_no != ''))),
+        description = COALESCE(description, (SELECT COALESCE(r.description, '') FROM rfqs r WHERE r.id = ecns.rfq_id OR (COALESCE(r.sr_no, r.rfq_number) = ecns.rfq_no AND ecns.rfq_no IS NOT NULL AND ecns.rfq_no != '')))
+      WHERE rfq_id IS NOT NULL OR (rfq_no IS NOT NULL AND rfq_no != '');
     `);
   } catch (err) {
     console.warn("Notice: could not auto-sync ecn metadata:", err);

@@ -61,6 +61,30 @@ test("MASTER DATA & HIERARCHY TESTS", async (t) => {
     // Duplicate harness number globally rejected
     assert.throws(() => HarnessService.create(proj.id, "global-harn-001"), /already exists in the company/);
   });
+
+  await t.test("Particular customer, model, and engineer can be deleted from Master Data", () => {
+    // 1. Customer deletion
+    const custToDelete = CustomerService.create("Customer For Deletion");
+    assert.ok(custToDelete.id);
+    const delCustResult = CustomerService.delete(custToDelete.id);
+    assert.equal(delCustResult.success, true);
+    assert.equal(CustomerService.list().some(c => c.id === custToDelete.id), false);
+
+    // 2. Engineer deletion
+    const engToDelete = EngineerService.create("Engineer For Deletion");
+    assert.ok(engToDelete.id);
+    const delEngResult = EngineerService.delete(engToDelete.id);
+    assert.equal(delEngResult.success, true);
+    assert.equal(EngineerService.list().some(e => e.id === engToDelete.id), false);
+
+    // 3. Model / Project deletion
+    const custModel = CustomerService.create("Customer Model Test");
+    const modelToDelete = ProjectService.getOrCreate(custModel.id, "Model For Deletion");
+    assert.ok(modelToDelete.id);
+    const delModelResult = ProjectService.delete(modelToDelete.id);
+    assert.equal(delModelResult.success, true);
+    assert.equal(ProjectService.list().some(p => p.id === modelToDelete.id), false);
+  });
 });
 
 test("REVISION CONTROL & SINGLE-ACTIVE POKA-YOKE", async (t) => {
@@ -735,6 +759,12 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
       rfq_number: nextRfqNum,
       customer_name: cust1.name,
       model: "Model-Alpha",
+      drawing_number: "DRW-SYNC-01",
+      harness_part_no: "HPN-SYNC-01",
+      customer_revision: "Rev 1",
+      fg_code: "FG-SYNC-01",
+      fg_rev: "01",
+      description: "Sync harness description",
       query_status: "Open",
       unique_list_share_date: "2026-06-01",
       unique_rfq_no: "556,987",
@@ -752,6 +782,12 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     assert.ok(ecnBefore);
     assert.equal(ecnBefore.customer_name, cust1.name);
     assert.equal(ecnBefore.model_name, "Model-Alpha");
+    assert.equal(ecnBefore.drawing_number, "DRW-SYNC-01");
+    assert.equal(ecnBefore.harness_part_number, "HPN-SYNC-01");
+    assert.equal(ecnBefore.customer_revision, "Rev 1");
+    assert.equal(ecnBefore.fg_code, "FG-SYNC-01");
+    assert.equal(ecnBefore.fg_rev, "01");
+    assert.equal(ecnBefore.description, "Sync harness description");
     assert.equal(ecnBefore.unique_rfq_no, "556,987");
 
     // ECN has its own timeline dates set
@@ -765,6 +801,12 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     RFQService.update(rfq.id, {
       customer_name: "Sync Customer Updated",
       model: "Model-Beta",
+      drawing_number: "DRW-SYNC-02",
+      harness_part_no: "HPN-SYNC-02",
+      customer_revision: "Rev 2",
+      fg_code: "FG-SYNC-02",
+      fg_rev: "02",
+      description: "Updated sync harness description",
       query_status: "Close",
       unique_rfq_no: "9877,1234",
       unique_status: "Close",
@@ -779,6 +821,12 @@ test("RFQ QUERY BLOCKING VALIDATION", async (t) => {
     const ecnAfter = ECNService.list().find(e => e.id === ecnBefore.id);
     assert.equal(ecnAfter.customer_name, "Sync Customer Updated");
     assert.equal(ecnAfter.model_name, "Model-Beta");
+    assert.equal(ecnAfter.drawing_number, "DRW-SYNC-02");
+    assert.equal(ecnAfter.harness_part_number, "HPN-SYNC-02");
+    assert.equal(ecnAfter.customer_revision, "Rev 2");
+    assert.equal(ecnAfter.fg_code, "FG-SYNC-02");
+    assert.equal(ecnAfter.fg_rev, "02");
+    assert.equal(ecnAfter.description, "Updated sync harness description");
     assert.equal(ecnAfter.unique_rfq_no, "9877,1234");
     assert.equal(ecnAfter.query_status, "Close");
     assert.equal(ecnAfter.unique_status, "Close");
@@ -881,7 +929,7 @@ test("ECN WORKFLOW & ASSIGNMENT LOCKING POKA-YOKE", async (t) => {
     });
   });
 
-  await t.test("ECN Tracker 23 columns persist, list in sequence, update inline, and soft-delete", () => {
+  await t.test("ECN Tracker 30 columns persist, list in sequence, update inline, and soft-delete", () => {
     const nextEcnNum = ECNService.generateNextNumber();
     const ecn = ECNService.create({
       ecn_number: nextEcnNum,
@@ -889,10 +937,17 @@ test("ECN WORKFLOW & ASSIGNMENT LOCKING POKA-YOKE", async (t) => {
       stage: "modification",
       customer_name: "Mahindra",
       model_name: "XUV700",
+      drawing_number: "DRW-XUV-901",
+      harness_part_number: "HPN-7720",
+      customer_revision: "Rev C",
+      fg_code: "FG-99001",
+      fg_rev: "02",
+      description: "Body wiring harness",
       query_status: "Open",
       unique_list_share_date: "2026-06-01",
       unique_rfq_no: "RFQ99999",
       unique_status: "Open",
+      sap_bom_alternate: "Alt-1",
       sap_bom_upload_date: "2026-06-05",
       sap_bom_released_date: "2026-06-08",
       prd_bom_release_date: "2026-06-10",
@@ -910,17 +965,38 @@ test("ECN WORKFLOW & ASSIGNMENT LOCKING POKA-YOKE", async (t) => {
     });
     assert.ok(ecn.id);
     assert.equal(ecn.stage, "modification");
+    assert.equal(ecn.drawing_number, "DRW-XUV-901");
+    assert.equal(ecn.harness_part_number, "HPN-7720");
+    assert.equal(ecn.customer_revision, "Rev C");
+    assert.equal(ecn.fg_code, "FG-99001");
+    assert.equal(ecn.fg_rev, "02");
+    assert.equal(ecn.description, "Body wiring harness");
+    assert.equal(ecn.sap_bom_alternate, "Alt-1");
     assert.equal(ecn.sap_bom_upload_date, "2026-06-05");
     assert.equal(ecn.min_status, "Pending");
 
     // Inline update
     const updated = ECNService.update(ecn.id, {
       stage: "design vave",
+      drawing_number: "DRW-XUV-902",
+      harness_part_number: "HPN-7721",
+      customer_revision: "Rev D",
+      fg_code: "FG-99002",
+      fg_rev: "03",
+      description: "Updated body wiring harness",
+      sap_bom_alternate: "Alt-2",
       min_status: "Close",
       review: "Design VAVE approved",
       overall_status: "Close"
     });
     assert.equal(updated.stage, "design vave");
+    assert.equal(updated.drawing_number, "DRW-XUV-902");
+    assert.equal(updated.harness_part_number, "HPN-7721");
+    assert.equal(updated.customer_revision, "Rev D");
+    assert.equal(updated.fg_code, "FG-99002");
+    assert.equal(updated.fg_rev, "03");
+    assert.equal(updated.description, "Updated body wiring harness");
+    assert.equal(updated.sap_bom_alternate, "Alt-2");
     assert.equal(updated.min_status, "Close");
     assert.equal(updated.review, "Design VAVE approved");
 
@@ -938,6 +1014,288 @@ test("ECN WORKFLOW & ASSIGNMENT LOCKING POKA-YOKE", async (t) => {
     const foundAfterRestore = ECNService.list().find(e => e.id === ecn.id);
     assert.ok(foundAfterRestore);
     assert.equal(foundAfterRestore.id, ecn.id);
+  });
+
+  await t.test("ECN Sheet RFQ No search and filtering when more than 5 RFQ numbers exist", () => {
+    const cust = CustomerService.create("Search RFQ OEM");
+    // Generate 6 distinct RFQ records
+    const rfqNumbers = [];
+    for (let i = 0; i < 6; i++) {
+      const num = RFQService.generateNextNumber();
+      RFQService.create({
+        rfq_number: num,
+        customer_name: cust.name,
+        model: `Model-Search-${i}`
+      });
+      rfqNumbers.push(num);
+    }
+    assert.ok(rfqNumbers.length > 5, "More than 5 RFQ numbers exist");
+
+    // Create ECNs referencing specific RFQ numbers
+    const targetRfq = rfqNumbers[3];
+    const ecnA = ECNService.create({
+      rfq_no: targetRfq,
+      customer_name: cust.name,
+      model_name: "Model-Search-3",
+      stage: "sample"
+    });
+    const ecnB = ECNService.create({
+      rfq_no: rfqNumbers[1],
+      customer_name: cust.name,
+      model_name: "Model-Search-1",
+      stage: "sample"
+    });
+
+    const allEcns = ECNService.list();
+    // Simulate sheet search for targetRfq
+    const filtered = allEcns.filter(e => (e.rfq_no || "").toLowerCase().includes(targetRfq.toLowerCase()));
+    assert.ok(filtered.some(e => e.id === ecnA.id));
+    assert.ok(!filtered.some(e => e.id === ecnB.id));
+  });
+});
+
+test("ECN SHEET DATE LOCK POKA-YOKE (SAP BOM Upload, Released, PRD BOM, Label, MIN by Eng & PPC)", async (t) => {
+  const cust = CustomerService.create("Date Lock OEM");
+  const proj = ProjectService.getOrCreate(cust.id, "DateLockModel");
+  const harness = HarnessService.create(proj.id, "HARN-DL-01");
+  const rev = RevisionService.create({
+    harness_id: harness.id,
+    revision_code: "A",
+    sop_number: "SOP-DL-01",
+    volume: 1000,
+    circuit_count: 24,
+    status: "Active"
+  });
+  const eng = EngineerService.create("Date Lock Eng");
+
+  await t.test("SAP BOM Upload Date must be equal to or earlier than SAP BOM Released Date", () => {
+    // 1. Reject when upload date > released date
+    assert.throws(() => {
+      ECNService.create({
+        harness_id: harness.id,
+        source_revision_id: rev.id,
+        stage_context: "Sample",
+        development_type: "New Development",
+        change_reason: "Test upload > released",
+        primary_engineer_id: eng.id,
+        target_date: "2026-06-30",
+        sap_bom_upload_date: "2026-05-15",
+        sap_bom_released_date: "2026-05-10"
+      });
+    }, /SAP BOM Upload Date \(2026-05-15\) must be equal to or earlier than SAP BOM Released Date \(2026-05-10\)/);
+
+    // 2. Allow when upload date == released date
+    const ecnEqual = ECNService.create({
+      harness_id: harness.id,
+      source_revision_id: rev.id,
+      stage_context: "Sample",
+      development_type: "New Development",
+      change_reason: "Test upload == released",
+      primary_engineer_id: eng.id,
+      target_date: "2026-06-30",
+      sap_bom_upload_date: "2026-05-10",
+      sap_bom_released_date: "2026-05-10"
+    });
+    assert.ok(ecnEqual.id);
+
+    // 3. Allow when upload date < released date
+    const ecnEarlier = ECNService.create({
+      harness_id: harness.id,
+      source_revision_id: rev.id,
+      stage_context: "Sample",
+      development_type: "New Development",
+      change_reason: "Test upload < released",
+      primary_engineer_id: eng.id,
+      target_date: "2026-06-30",
+      sap_bom_upload_date: "2026-05-08",
+      sap_bom_released_date: "2026-05-10"
+    });
+    assert.ok(ecnEarlier.id);
+  });
+
+  await t.test("PRD BOM Release Date cannot be earlier than SAP BOM Released Date", () => {
+    // Reject when PRD BOM date < sap_bom_released_date
+    assert.throws(() => {
+      ECNService.create({
+        harness_id: harness.id,
+        source_revision_id: rev.id,
+        stage_context: "Sample",
+        development_type: "New Development",
+        change_reason: "Test prd < released",
+        primary_engineer_id: eng.id,
+        target_date: "2026-06-30",
+        sap_bom_released_date: "2026-05-10",
+        prd_bom_release_date: "2026-05-09"
+      });
+    }, /PRD BOM Release Date \(2026-05-09\) cannot be earlier than SAP BOM Released Date \(2026-05-10\)/);
+
+    // Allow equal and later dates
+    const ecnPrd = ECNService.create({
+      harness_id: harness.id,
+      source_revision_id: rev.id,
+      stage_context: "Sample",
+      development_type: "New Development",
+      change_reason: "Test prd >= released",
+      primary_engineer_id: eng.id,
+      target_date: "2026-06-30",
+      sap_bom_released_date: "2026-05-10",
+      prd_bom_release_date: "2026-05-12"
+    });
+    assert.ok(ecnPrd.id);
+  });
+
+  await t.test("Label Upload Date cannot be earlier than SAP BOM Released Date", () => {
+    assert.throws(() => {
+      ECNService.create({
+        harness_id: harness.id,
+        source_revision_id: rev.id,
+        stage_context: "Sample",
+        development_type: "New Development",
+        change_reason: "Test label < released",
+        primary_engineer_id: eng.id,
+        target_date: "2026-06-30",
+        sap_bom_released_date: "2026-05-10",
+        label_upload_date: "2026-05-05"
+      });
+    }, /Label Upload Date \(2026-05-05\) cannot be earlier than SAP BOM Released Date \(2026-05-10\)/);
+
+    const ecnLabel = ECNService.create({
+      harness_id: harness.id,
+      source_revision_id: rev.id,
+      stage_context: "Sample",
+      development_type: "New Development",
+      change_reason: "Test label >= released",
+      primary_engineer_id: eng.id,
+      target_date: "2026-06-30",
+      sap_bom_released_date: "2026-05-10",
+      label_upload_date: "2026-05-10"
+    });
+    assert.ok(ecnLabel.id);
+  });
+
+  await t.test("MIN by Engineer Date cannot be earlier than Label Upload Date", () => {
+    assert.throws(() => {
+      ECNService.create({
+        harness_id: harness.id,
+        source_revision_id: rev.id,
+        stage_context: "Sample",
+        development_type: "New Development",
+        change_reason: "Test min_eng < label",
+        primary_engineer_id: eng.id,
+        target_date: "2026-06-30",
+        label_upload_date: "2026-05-15",
+        min_by_engineer_date: "2026-05-14"
+      });
+    }, /MIN by Engineer Date \(2026-05-14\) cannot be earlier than Label Upload Date \(2026-05-15\)/);
+
+    const ecnMinEng = ECNService.create({
+      harness_id: harness.id,
+      source_revision_id: rev.id,
+      stage_context: "Sample",
+      development_type: "New Development",
+      change_reason: "Test min_eng >= label",
+      primary_engineer_id: eng.id,
+      target_date: "2026-06-30",
+      label_upload_date: "2026-05-15",
+      min_by_engineer_date: "2026-05-16"
+    });
+    assert.ok(ecnMinEng.id);
+  });
+
+  await t.test("MIN by PPC Date cannot be earlier than MIN by Engineer Date", () => {
+    assert.throws(() => {
+      ECNService.create({
+        harness_id: harness.id,
+        source_revision_id: rev.id,
+        stage_context: "Sample",
+        development_type: "New Development",
+        change_reason: "Test min_ppc < min_eng",
+        primary_engineer_id: eng.id,
+        target_date: "2026-06-30",
+        min_by_engineer_date: "2026-05-16",
+        min_by_ppc: "2026-05-15"
+      });
+    }, /MIN by PPC Date \(2026-05-15\) cannot be earlier than MIN by Engineer Date \(2026-05-16\)/);
+
+    const ecnMinPpc = ECNService.create({
+      harness_id: harness.id,
+      source_revision_id: rev.id,
+      stage_context: "Sample",
+      development_type: "New Development",
+      change_reason: "Test min_ppc >= min_eng",
+      primary_engineer_id: eng.id,
+      target_date: "2026-06-30",
+      min_by_engineer_date: "2026-05-16",
+      min_by_ppc: "2026-05-16"
+    });
+    assert.ok(ecnMinPpc.id);
+  });
+
+  await t.test("ECNService.update enforces date locks during partial/inline updates against existing data", () => {
+    const ecnBase = ECNService.create({
+      harness_id: harness.id,
+      source_revision_id: rev.id,
+      stage_context: "Sample",
+      development_type: "New Development",
+      change_reason: "Test inline update date locks",
+      primary_engineer_id: eng.id,
+      target_date: "2026-06-30",
+      sap_bom_upload_date: "2026-05-01",
+      sap_bom_released_date: "2026-05-05",
+      prd_bom_release_date: "2026-05-08",
+      label_upload_date: "2026-05-10",
+      min_by_engineer_date: "2026-05-12",
+      min_by_ppc: "2026-05-15"
+    });
+
+    // 1. Updating upload date to later than existing released date (2026-05-05) must fail
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { sap_bom_upload_date: "2026-05-06" });
+    }, /SAP BOM Upload Date \(2026-05-06\) must be equal to or earlier than SAP BOM Released Date \(2026-05-05\)/);
+
+    // 2. Updating released date earlier than existing upload date (2026-05-01) must fail
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { sap_bom_released_date: "2026-04-30" });
+    }, /SAP BOM Upload Date \(2026-05-01\) must be equal to or earlier than SAP BOM Released Date \(2026-04-30\)/);
+
+    // 3. Updating released date later than existing PRD BOM date (2026-05-08) must fail
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { sap_bom_released_date: "2026-05-09" });
+    }, /PRD BOM Release Date \(2026-05-08\) cannot be earlier than SAP BOM Released Date \(2026-05-09\)/);
+
+    // 4. Updating PRD BOM earlier than existing released date (2026-05-05) must fail
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { prd_bom_release_date: "2026-05-04" });
+    }, /PRD BOM Release Date \(2026-05-04\) cannot be earlier than SAP BOM Released Date \(2026-05-05\)/);
+
+    // 5. Updating Label date earlier than existing released date (2026-05-05) or later than existing min_by_engineer (2026-05-12) must fail
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { label_upload_date: "2026-05-04" });
+    }, /Label Upload Date \(2026-05-04\) cannot be earlier than SAP BOM Released Date \(2026-05-05\)/);
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { label_upload_date: "2026-05-13" });
+    }, /MIN by Engineer Date \(2026-05-12\) cannot be earlier than Label Upload Date \(2026-05-13\)/);
+
+    // 6. Updating min_by_engineer earlier than existing label date (2026-05-10) or later than existing min_by_ppc (2026-05-15) must fail
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { min_by_engineer_date: "2026-05-09" });
+    }, /MIN by Engineer Date \(2026-05-09\) cannot be earlier than Label Upload Date \(2026-05-10\)/);
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { min_by_engineer_date: "2026-05-16" });
+    }, /MIN by PPC Date \(2026-05-15\) cannot be earlier than MIN by Engineer Date \(2026-05-16\)/);
+
+    // 7. Updating min_by_ppc earlier than existing min_by_engineer (2026-05-12) must fail
+    assert.throws(() => {
+      ECNService.update(ecnBase.id, { min_by_ppc: "2026-05-11" });
+    }, /MIN by PPC Date \(2026-05-11\) cannot be earlier than MIN by Engineer Date \(2026-05-12\)/);
+
+    // 8. Valid update succeeds
+    const updated = ECNService.update(ecnBase.id, {
+      sap_bom_upload_date: "2026-05-02",
+      sap_bom_released_date: "2026-05-06"
+    });
+    assert.equal(updated.sap_bom_upload_date, "2026-05-02");
+    assert.equal(updated.sap_bom_released_date, "2026-05-06");
   });
 });
 

@@ -17,6 +17,7 @@ import {
   X,
   ExternalLink,
   ChevronRight,
+  ChevronDown,
   Database,
   Calendar,
   Trash2,
@@ -31,6 +32,225 @@ import {
   Lock,
   RotateCcw
 } from "lucide-react";
+
+interface SearchableRfqSelectProps {
+  value: string;
+  options: string[];
+  onChange: (val: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+}
+
+function SearchableRfqSelect({
+  value,
+  options,
+  onChange,
+  placeholder = "Select RFQ No...",
+  disabled = false,
+  className = "table-inline-select"
+}: SearchableRfqSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  const hasSearch = options.length > 5;
+
+  const filteredOptions = searchQuery.trim()
+    ? options.filter(opt => opt.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : options;
+
+  const handleOpen = (e: React.MouseEvent) => {
+    if (disabled) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const dropdownHeight = Math.min(320, 60 + Math.max(1, filteredOptions.length) * 36);
+
+    const top = spaceBelow < dropdownHeight && rect.top > dropdownHeight
+      ? rect.top - dropdownHeight - 4
+      : rect.bottom + 4;
+
+    setCoords({
+      top: Math.max(8, top),
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 270)),
+      width: Math.max(rect.width, 220)
+    });
+    setIsOpen(true);
+    setSearchQuery("");
+  };
+
+  useEffect(() => {
+    if (isOpen && hasSearch) {
+      const timer = setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, hasSearch]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".rfq-searchable-menu") && !buttonRef.current?.contains(target)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleOutsideClick);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  // If 5 or fewer RFQ options, render clean standard select
+  if (!hasSearch) {
+    return (
+      <select
+        className={className}
+        value={value || ""}
+        disabled={disabled}
+        onChange={e => onChange(e.target.value)}
+      >
+        <option value="">{placeholder}</option>
+        {options.map(opt => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+        {value && !options.includes(value) && (
+          <option value={value}>{value}</option>
+        )}
+      </select>
+    );
+  }
+
+  // If more than 5 RFQ options, render searchable select with live search box
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      <button
+        ref={buttonRef}
+        type="button"
+        disabled={disabled}
+        onClick={handleOpen}
+        className={className}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          textAlign: "left",
+          gap: "6px",
+          width: "100%",
+          cursor: disabled ? "not-allowed" : "pointer",
+          color: value ? "#38bdf8" : "var(--text-muted)",
+          fontWeight: value ? 600 : 400
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {value || placeholder}
+        </span>
+        <Search size={13} style={{ color: "#38bdf8", flexShrink: 0, opacity: 0.8 }} />
+      </button>
+
+      {isOpen && coords && (
+        <div
+          className="rfq-searchable-menu"
+          style={{
+            top: coords.top,
+            left: coords.left,
+            width: coords.width,
+            maxHeight: "320px"
+          }}
+        >
+          {/* SEARCH INPUT BAR */}
+          <div className="rfq-searchable-header">
+            <Search size={14} style={{ color: "#38bdf8", flexShrink: 0 }} />
+            <input
+              ref={searchInputRef}
+              type="text"
+              className="rfq-searchable-input"
+              placeholder="Search RFQ No..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onClick={e => e.stopPropagation()}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setSearchQuery(""); }}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "2px" }}
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* OPTIONS LIST */}
+          <div style={{ overflowY: "auto", flex: 1, maxHeight: "230px", padding: "4px 0" }}>
+            <div
+              className="rfq-searchable-item"
+              style={{ color: "var(--text-muted)", fontStyle: "italic", borderBottom: "1px dashed var(--border)" }}
+              onClick={() => {
+                onChange("");
+                setIsOpen(false);
+              }}
+            >
+              -- None / Clear RFQ --
+            </div>
+
+            {filteredOptions.length === 0 ? (
+              <div style={{ padding: "14px 12px", fontSize: "12px", color: "var(--text-muted)", textAlign: "center" }}>
+                No RFQ found matching "{searchQuery}"
+              </div>
+            ) : (
+              filteredOptions.map((rfqNo) => {
+                const isSelected = rfqNo === value;
+                return (
+                  <div
+                    key={rfqNo}
+                    className={`rfq-searchable-item ${isSelected ? "active" : ""}`}
+                    onClick={() => {
+                      onChange(rfqNo);
+                      setIsOpen(false);
+                    }}
+                  >
+                    <span>{rfqNo}</span>
+                    {isSelected && <span style={{ color: "#38bdf8", fontSize: "12px" }}>✓</span>}
+                  </div>
+                );
+              })
+            )}
+
+            {value && !options.includes(value) && (
+              <div
+                className="rfq-searchable-item active"
+                onClick={() => {
+                  onChange(value);
+                  setIsOpen(false);
+                }}
+              >
+                <span>{value} (Current)</span>
+                <span style={{ color: "#38bdf8", fontSize: "12px" }}>✓</span>
+              </div>
+            )}
+          </div>
+
+          {/* FOOTER COUNT */}
+          <div className="rfq-searchable-footer">
+            <span>{filteredOptions.length} of {options.length} RFQs</span>
+            <span>Latest on top</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<number>(0);
@@ -91,12 +311,13 @@ export default function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<string>("ALL");
   const [customerKitTab, setCustomerKitTab] = useState<"rfqs" | "ecns" | "kits" | "activity">("rfqs");
   const [customerSearchTerm, setCustomerSearchTerm] = useState<string>("");
+  const [ecnRfqFilter, setEcnRfqFilter] = useState<string>("");
 
   // Modal Dialog states
   const [modalType, setModalType] = useState<string | null>(null);
   const [modalData, setModalData] = useState<any>({});
   const [modalError, setModalError] = useState<string | null>(null);
-  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: number; targetNum: string; type: "rfq" | "ecn" } | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: number; targetNum: string; type: "rfq" | "ecn" | "customer" | "engineer" | "model" } | null>(null);
   const [undoConfirmTarget, setUndoConfirmTarget] = useState<{ id: number; targetNum: string; type: "rfq" | "ecn"; isDeleted?: boolean } | null>(null);
 
   // Auto-dismiss alerts
@@ -256,6 +477,12 @@ export default function App() {
     .filter(Boolean);
   const uniqueRfqOptions = Array.from(new Set(sortedRfqOptions));
 
+  // Filtered ECN records for ECN Sheet (supports RFQ No search)
+  const filteredEcns = ecns.filter(e => {
+    if (!ecnRfqFilter.trim()) return true;
+    return (e.rfq_no || "").toLowerCase().includes(ecnRfqFilter.trim().toLowerCase());
+  });
+
   // Inline update helper for fast table editing
   const handleInlineUpdate = async (id: number, patchData: any) => {
     try {
@@ -291,6 +518,7 @@ export default function App() {
       refreshAll();
     } catch (err: any) {
       setErrorBanner("Failed to save ECN: " + err.message);
+      refreshAll();
     }
   };
 
@@ -357,6 +585,45 @@ export default function App() {
       refreshAll();
     } catch (err: any) {
       setErrorBanner("Failed to recover ECN: " + err.message);
+    }
+  };
+
+  // Delete Customer execution (from Master Data)
+  const executeDeleteCustomer = async (id: number, name: string) => {
+    try {
+      const res = await fetch(`/api/customers?id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to delete customer");
+      setSuccessBanner(`Customer "${name}" deleted successfully.`);
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to delete customer: " + err.message);
+    }
+  };
+
+  // Delete Engineer execution (from Master Data)
+  const executeDeleteEngineer = async (id: number, name: string) => {
+    try {
+      const res = await fetch(`/api/engineers?id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to delete engineer");
+      setSuccessBanner(`Engineer "${name}" deleted successfully.`);
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to delete engineer: " + err.message);
+    }
+  };
+
+  // Delete Model execution (from Master Data)
+  const executeDeleteModel = async (id: number, modelName: string) => {
+    try {
+      const res = await fetch(`/api/projects?id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to delete model");
+      setSuccessBanner(`Model "${modelName}" deleted successfully.`);
+      refreshAll();
+    } catch (err: any) {
+      setErrorBanner("Failed to delete model: " + err.message);
     }
   };
 
@@ -519,6 +786,36 @@ export default function App() {
       }
       if (startDate && actualDate && actualDate < startDate) {
         setModalError(`Actual Date (${actualDate}) cannot be earlier than Start Date (${startDate}).`);
+        return;
+      }
+    }
+
+    if (modalType === "new_ecn" || modalType === "edit_ecn") {
+      const sbUpload = payload.sap_bom_upload_date?.trim();
+      const sbReleased = payload.sap_bom_released_date?.trim();
+      const prdBomRel = payload.prd_bom_release_date?.trim();
+      const labelUpload = payload.label_upload_date?.trim();
+      const minEng = payload.min_by_engineer_date?.trim();
+      const minPpc = payload.min_by_ppc?.trim();
+
+      if (sbUpload && sbReleased && sbUpload > sbReleased) {
+        setModalError(`SAP BOM Upload Date (${sbUpload}) must be equal to or earlier than SAP BOM Released Date (${sbReleased}).`);
+        return;
+      }
+      if (sbReleased && prdBomRel && sbReleased > prdBomRel) {
+        setModalError(`PRD BOM Release Date (${prdBomRel}) cannot be earlier than SAP BOM Released Date (${sbReleased}).`);
+        return;
+      }
+      if (sbReleased && labelUpload && sbReleased > labelUpload) {
+        setModalError(`Label Upload Date (${labelUpload}) cannot be earlier than SAP BOM Released Date (${sbReleased}).`);
+        return;
+      }
+      if (labelUpload && minEng && labelUpload > minEng) {
+        setModalError(`MIN by Engineer Date (${minEng}) cannot be earlier than Label Upload Date (${labelUpload}).`);
+        return;
+      }
+      if (minEng && minPpc && minEng > minPpc) {
+        setModalError(`MIN by PPC Date (${minPpc}) cannot be earlier than MIN by Engineer Date (${minEng}).`);
         return;
       }
     }
@@ -1629,20 +1926,116 @@ export default function App() {
               </div>
             </div>
 
+            {/* ECN SHEET RFQ NO FILTER / SEARCH BAR (shown when > 5 RFQs exist) */}
+            {uniqueRfqOptions.length > 5 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: "12px",
+                  padding: "8px 14px",
+                  background: "rgba(15, 23, 42, 0.5)",
+                  border: "1px solid rgba(56, 189, 248, 0.25)",
+                  borderRadius: "6px"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <Search size={15} style={{ color: "#38bdf8" }} />
+                  <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-main)" }}>
+                    Search RFQ No:
+                  </span>
+                  <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                    <input
+                      type="text"
+                      placeholder="Search RFQ No in sheet..."
+                      value={ecnRfqFilter}
+                      onChange={(e) => setEcnRfqFilter(e.target.value)}
+                      style={{
+                        background: "rgba(15, 23, 42, 0.8)",
+                        border: "1px solid rgba(56, 189, 248, 0.3)",
+                        color: "#f8fafc",
+                        padding: "5px 28px 5px 10px",
+                        borderRadius: "4px",
+                        fontSize: "12px",
+                        width: "240px",
+                        outline: "none"
+                      }}
+                    />
+                    {ecnRfqFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setEcnRfqFilter("")}
+                        style={{
+                          position: "absolute",
+                          right: "6px",
+                          background: "none",
+                          border: "none",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          padding: "2px"
+                        }}
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                  {ecnRfqFilter && (
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: "3px 8px", fontSize: "11px" }}
+                      onClick={() => setEcnRfqFilter("")}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  {ecnRfqFilter ? (
+                    <span style={{ color: "#38bdf8", fontWeight: 600 }}>
+                      Showing {filteredEcns.length} of {ecns.length} ECNs matching "{ecnRfqFilter}"
+                    </span>
+                  ) : (
+                    <span>Total {ecns.length} ECNs ({uniqueRfqOptions.length} RFQ numbers)</span>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="card-panel">
               <div className="table-container">
                 <table>
                   <thead>
                     <tr>
                       <th className="sticky-col">ecn no.</th>
-                      <th>rfq no.</th>
+                      <th>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          rfq no.
+                          {uniqueRfqOptions.length > 5 && (
+                            <span title="Search option active (>5 RFQs in sheet)" style={{ display: "inline-flex", alignItems: "center" }}>
+                              <Search
+                                size={12}
+                                style={{ color: ecnRfqFilter ? "#38bdf8" : "var(--text-muted)" }}
+                              />
+                            </span>
+                          )}
+                        </div>
+                      </th>
                       <th>stage</th>
                       <th>customer name</th>
                       <th>model name</th>
+                      <th>Drawing no.</th>
+                      <th>Harness part no.</th>
+                      <th>customer revision</th>
+                      <th>fg code</th>
+                      <th>fg rev.</th>
+                      <th>description</th>
                       <th>Query status</th>
                       <th>Unique list share date</th>
                       <th>UCL No</th>
                       <th>Unique status</th>
+                      <th>Sap Bom alternate</th>
                       <th>sap bom upload date</th>
                       <th>sap bom released date</th>
                       <th>prd bom release date</th>
@@ -1661,39 +2054,60 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {ecns.map((e, idx) => (
+                    {filteredEcns.length === 0 ? (
+                      <tr>
+                        <td colSpan={31} style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)" }}>
+                          {ecnRfqFilter ? (
+                            <div>
+                              <p style={{ margin: 0, fontSize: "14px", color: "#f87171" }}>
+                                No ECN records found matching RFQ No "{ecnRfqFilter}".
+                              </p>
+                              <button
+                                type="button"
+                                className="btn btn-outline"
+                                style={{ marginTop: "10px", padding: "4px 12px", fontSize: "12px" }}
+                                onClick={() => setEcnRfqFilter("")}
+                              >
+                                Clear RFQ Filter
+                              </button>
+                            </div>
+                          ) : (
+                            "No ECN records found."
+                          )}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredEcns.map((e, idx) => (
                       <tr key={e.id} className={e.is_deleted ? "table-row-deleted" : ""}>
                         <td className="sticky-col" style={{ fontWeight: 600, color: e.is_deleted ? "#fca5a5" : "#38bdf8", whiteSpace: "nowrap" }}>
                           {e.ecn_number || idx + 1}
                           {e.is_deleted ? <span className="deleted-badge">DELETED</span> : null}
                         </td>
                         <td style={{ minWidth: "160px", padding: "4px" }}>
-                          <select
-                            className="table-inline-select"
+                          <SearchableRfqSelect
                             value={e.rfq_no || ""}
+                            options={uniqueRfqOptions}
                             key={`ecn-rfq-${e.id}-${e.rfq_no || ""}`}
-                            onChange={async (ev) => {
-                              const val = ev.target.value;
+                            disabled={!!e.is_deleted}
+                            onChange={async (val) => {
                               if (val !== (e.rfq_no || "")) {
                                 const matchedRfq = rfqs.find(r => (r.sr_no || r.rfq_number) === val);
                                 await handleInlineEcnUpdate(e.id, {
                                   rfq_no: val,
                                   ...(matchedRfq ? {
                                     customer_name: matchedRfq.customer_name || e.customer_name || "",
-                                    model_name: matchedRfq.model || e.model_name || ""
+                                    model_name: matchedRfq.model || matchedRfq.model_name || e.model_name || "",
+                                    drawing_number: matchedRfq.drawing_number || e.drawing_number || "",
+                                    harness_part_number: matchedRfq.harness_part_no || matchedRfq.harness_part_number || matchedRfq.harness_number || e.harness_part_number || "",
+                                    customer_revision: matchedRfq.customer_revision || matchedRfq.revision_code || e.customer_revision || "",
+                                    fg_code: matchedRfq.fg_code || e.fg_code || "",
+                                    fg_rev: matchedRfq.fg_rev || e.fg_rev || "",
+                                    description: matchedRfq.description || e.description || ""
                                   } : {})
                                 });
                               }
                             }}
-                          >
-                            <option value="">Select RFQ No...</option>
-                            {uniqueRfqOptions.map((rfqNo) => (
-                              <option key={rfqNo} value={rfqNo}>{rfqNo}</option>
-                            ))}
-                            {e.rfq_no && !uniqueRfqOptions.includes(e.rfq_no) && (
-                              <option value={e.rfq_no}>{e.rfq_no}</option>
-                            )}
-                          </select>
+                          />
                         </td>
                         <td style={{ minWidth: "140px", padding: "4px" }}>
                           <select
@@ -1764,6 +2178,96 @@ export default function App() {
                               </select>
                             );
                           })()}
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Drawing no."
+                            defaultValue={e.drawing_number || ""}
+                            key={`ecn-drw-${e.id}-${e.drawing_number || ""}`}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.drawing_number || "")) {
+                                await handleInlineEcnUpdate(e.id, { drawing_number: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "150px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Harness part no."
+                            defaultValue={e.harness_part_number || ""}
+                            key={`ecn-hpn-${e.id}-${e.harness_part_number || ""}`}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.harness_part_number || "")) {
+                                await handleInlineEcnUpdate(e.id, { harness_part_number: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "130px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Rev"
+                            defaultValue={e.customer_revision || ""}
+                            key={`ecn-crev-${e.id}-${e.customer_revision || ""}`}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.customer_revision || "")) {
+                                await handleInlineEcnUpdate(e.id, { customer_revision: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="FG Code"
+                            defaultValue={e.fg_code || ""}
+                            key={`ecn-fgc-${e.id}-${e.fg_code || ""}`}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.fg_code || "")) {
+                                await handleInlineEcnUpdate(e.id, { fg_code: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "100px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="FG Rev"
+                            defaultValue={e.fg_rev || ""}
+                            key={`ecn-fgr-${e.id}-${e.fg_rev || ""}`}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.fg_rev || "")) {
+                                await handleInlineEcnUpdate(e.id, { fg_rev: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "180px", padding: "4px" }}>
+                          <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="Description"
+                            defaultValue={e.description || ""}
+                            key={`ecn-desc-${e.id}-${e.description || ""}`}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.description || "")) {
+                                await handleInlineEcnUpdate(e.id, { description: val });
+                              }
+                            }}
+                          />
                         </td>
                         <td style={{ minWidth: "140px", padding: "4px" }}>
                           <select
@@ -1841,15 +2345,36 @@ export default function App() {
                         </td>
                         <td style={{ minWidth: "140px", padding: "4px" }}>
                           <input
+                            type="text"
+                            className="table-inline-input"
+                            placeholder="e.g. Alt-1"
+                            defaultValue={e.sap_bom_alternate || ""}
+                            key={`ecn-sbalt-${e.id}-${e.sap_bom_alternate || ""}`}
+                            onBlur={async (ev) => {
+                              const val = ev.target.value.trim();
+                              if (val !== (e.sap_bom_alternate || "")) {
+                                await handleInlineEcnUpdate(e.id, { sap_bom_alternate: val });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td style={{ minWidth: "140px", padding: "4px" }}>
+                          <input
                             type="date"
                             className="table-inline-input"
                             defaultValue={e.sap_bom_upload_date || ""}
-                            key={`ecn-sbup-${e.id}-${e.sap_bom_upload_date || ""}`}
+                            max={e.sap_bom_released_date || undefined}
+                            key={`ecn-sbup-${e.id}-${e.sap_bom_upload_date || ""}-${e.sap_bom_released_date || ""}`}
                             onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onChange={async (ev) => {
                               const val = ev.target.value;
                               if (val !== (e.sap_bom_upload_date || "")) {
+                                if (val && e.sap_bom_released_date && val > e.sap_bom_released_date) {
+                                  setErrorBanner(`SAP BOM Upload Date (${val}) must be equal to or earlier than SAP BOM Released Date (${e.sap_bom_released_date}).`);
+                                  ev.target.value = e.sap_bom_upload_date || "";
+                                  return;
+                                }
                                 await handleInlineEcnUpdate(e.id, { sap_bom_upload_date: val });
                               }
                             }}
@@ -1860,12 +2385,29 @@ export default function App() {
                             type="date"
                             className="table-inline-input"
                             defaultValue={e.sap_bom_released_date || ""}
-                            key={`ecn-sbrl-${e.id}-${e.sap_bom_released_date || ""}`}
+                            min={e.sap_bom_upload_date || undefined}
+                            max={e.prd_bom_release_date && e.label_upload_date ? (e.prd_bom_release_date < e.label_upload_date ? e.prd_bom_release_date : e.label_upload_date) : (e.prd_bom_release_date || e.label_upload_date || undefined)}
+                            key={`ecn-sbrl-${e.id}-${e.sap_bom_released_date || ""}-${e.sap_bom_upload_date || ""}`}
                             onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onChange={async (ev) => {
                               const val = ev.target.value;
                               if (val !== (e.sap_bom_released_date || "")) {
+                                if (val && e.sap_bom_upload_date && val < e.sap_bom_upload_date) {
+                                  setErrorBanner(`SAP BOM Released Date (${val}) cannot be earlier than SAP BOM Upload Date (${e.sap_bom_upload_date}).`);
+                                  ev.target.value = e.sap_bom_released_date || "";
+                                  return;
+                                }
+                                if (val && e.prd_bom_release_date && val > e.prd_bom_release_date) {
+                                  setErrorBanner(`SAP BOM Released Date (${val}) cannot be later than PRD BOM Release Date (${e.prd_bom_release_date}).`);
+                                  ev.target.value = e.sap_bom_released_date || "";
+                                  return;
+                                }
+                                if (val && e.label_upload_date && val > e.label_upload_date) {
+                                  setErrorBanner(`SAP BOM Released Date (${val}) cannot be later than Label Upload Date (${e.label_upload_date}).`);
+                                  ev.target.value = e.sap_bom_released_date || "";
+                                  return;
+                                }
                                 await handleInlineEcnUpdate(e.id, { sap_bom_released_date: val });
                               }
                             }}
@@ -1876,12 +2418,18 @@ export default function App() {
                             type="date"
                             className="table-inline-input"
                             defaultValue={e.prd_bom_release_date || ""}
-                            key={`ecn-pdbrl-${e.id}-${e.prd_bom_release_date || ""}`}
+                            min={e.sap_bom_released_date || undefined}
+                            key={`ecn-pdbrl-${e.id}-${e.prd_bom_release_date || ""}-${e.sap_bom_released_date || ""}`}
                             onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onChange={async (ev) => {
                               const val = ev.target.value;
                               if (val !== (e.prd_bom_release_date || "")) {
+                                if (val && e.sap_bom_released_date && val < e.sap_bom_released_date) {
+                                  setErrorBanner(`PRD BOM Release Date (${val}) cannot be earlier than SAP BOM Released Date (${e.sap_bom_released_date}).`);
+                                  ev.target.value = e.prd_bom_release_date || "";
+                                  return;
+                                }
                                 await handleInlineEcnUpdate(e.id, { prd_bom_release_date: val });
                               }
                             }}
@@ -1892,12 +2440,24 @@ export default function App() {
                             type="date"
                             className="table-inline-input"
                             defaultValue={e.label_upload_date || ""}
-                            key={`ecn-lbup-${e.id}-${e.label_upload_date || ""}`}
+                            min={e.sap_bom_released_date || undefined}
+                            max={e.min_by_engineer_date || undefined}
+                            key={`ecn-lbup-${e.id}-${e.label_upload_date || ""}-${e.sap_bom_released_date || ""}`}
                             onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onChange={async (ev) => {
                               const val = ev.target.value;
                               if (val !== (e.label_upload_date || "")) {
+                                if (val && e.sap_bom_released_date && val < e.sap_bom_released_date) {
+                                  setErrorBanner(`Label Upload Date (${val}) cannot be earlier than SAP BOM Released Date (${e.sap_bom_released_date}).`);
+                                  ev.target.value = e.label_upload_date || "";
+                                  return;
+                                }
+                                if (val && e.min_by_engineer_date && val > e.min_by_engineer_date) {
+                                  setErrorBanner(`Label Upload Date (${val}) cannot be later than MIN by Engineer Date (${e.min_by_engineer_date}).`);
+                                  ev.target.value = e.label_upload_date || "";
+                                  return;
+                                }
                                 await handleInlineEcnUpdate(e.id, { label_upload_date: val });
                               }
                             }}
@@ -1908,12 +2468,24 @@ export default function App() {
                             type="date"
                             className="table-inline-input"
                             defaultValue={e.min_by_engineer_date || ""}
-                            key={`ecn-mbe-${e.id}-${e.min_by_engineer_date || ""}`}
+                            min={e.label_upload_date || undefined}
+                            max={e.min_by_ppc || undefined}
+                            key={`ecn-mbe-${e.id}-${e.min_by_engineer_date || ""}-${e.label_upload_date || ""}`}
                             onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onChange={async (ev) => {
                               const val = ev.target.value;
                               if (val !== (e.min_by_engineer_date || "")) {
+                                if (val && e.label_upload_date && val < e.label_upload_date) {
+                                  setErrorBanner(`MIN by Engineer Date (${val}) cannot be earlier than Label Upload Date (${e.label_upload_date}).`);
+                                  ev.target.value = e.min_by_engineer_date || "";
+                                  return;
+                                }
+                                if (val && e.min_by_ppc && val > e.min_by_ppc) {
+                                  setErrorBanner(`MIN by Engineer Date (${val}) cannot be later than MIN by PPC Date (${e.min_by_ppc}).`);
+                                  ev.target.value = e.min_by_engineer_date || "";
+                                  return;
+                                }
                                 await handleInlineEcnUpdate(e.id, { min_by_engineer_date: val });
                               }
                             }}
@@ -1924,12 +2496,18 @@ export default function App() {
                             type="date"
                             className="table-inline-input"
                             defaultValue={e.min_by_ppc || ""}
-                            key={`ecn-mbp-${e.id}-${e.min_by_ppc || ""}`}
+                            min={e.min_by_engineer_date || undefined}
+                            key={`ecn-mbp-${e.id}-${e.min_by_ppc || ""}-${e.min_by_engineer_date || ""}`}
                             onClick={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onFocus={(ev) => { try { (ev.currentTarget as any).showPicker?.(); } catch { } }}
                             onChange={async (ev) => {
                               const val = ev.target.value;
                               if (val !== (e.min_by_ppc || "")) {
+                                if (val && e.min_by_engineer_date && val < e.min_by_engineer_date) {
+                                  setErrorBanner(`MIN by PPC Date (${val}) cannot be earlier than MIN by Engineer Date (${e.min_by_engineer_date}).`);
+                                  ev.target.value = e.min_by_ppc || "";
+                                  return;
+                                }
                                 await handleInlineEcnUpdate(e.id, { min_by_ppc: val });
                               }
                             }}
@@ -2153,7 +2731,7 @@ export default function App() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )))}
                   </tbody>
                 </table>
               </div>
@@ -2942,19 +3520,34 @@ export default function App() {
                 <div className="table-container">
                   <table>
                     <thead>
-                      <tr><th>Customer Name</th><th>Status</th></tr>
+                      <tr><th>Customer Name</th><th>Status</th><th style={{ width: "90px", textAlign: "right" }}>Action</th></tr>
                     </thead>
                     <tbody>
-                      {customers.map(c => (
-                        <tr key={c.id}>
-                          <td style={{ fontWeight: 600 }}>{c.name}</td>
-                          <td>
-                            <span className={`badge ${c.is_active ? "badge-active" : "badge-obsolete"}`}>
-                              {c.is_active ? "Active" : "Inactive"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {customers.length === 0 ? (
+                        <tr><td colSpan={3} style={{ textAlign: "center", padding: "20px", color: "var(--text-muted)" }}>No customers found.</td></tr>
+                      ) : (
+                        customers.map(c => (
+                          <tr key={c.id}>
+                            <td style={{ fontWeight: 600 }}>{c.name}</td>
+                            <td>
+                              <span className={`badge ${c.is_active ? "badge-active" : "badge-obsolete"}`}>
+                                {c.is_active ? "Active" : "Inactive"}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                              <button
+                                type="button"
+                                className="btn btn-outline"
+                                style={{ padding: "3px 8px", fontSize: "11px", color: "#f87171", borderColor: "rgba(239, 68, 68, 0.4)" }}
+                                title={`Delete Customer ${c.name}`}
+                                onClick={() => setDeleteConfirmTarget({ id: c.id, targetNum: c.name, type: "customer" })}
+                              >
+                                <Trash2 size={12} style={{ marginRight: "3px" }} /> Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -2971,19 +3564,34 @@ export default function App() {
                 <div className="table-container">
                   <table>
                     <thead>
-                      <tr><th>Engineer Name</th><th>Status</th></tr>
+                      <tr><th>Engineer Name</th><th>Status</th><th style={{ width: "90px", textAlign: "right" }}>Action</th></tr>
                     </thead>
                     <tbody>
-                      {engineers.map(e => (
-                        <tr key={e.id}>
-                          <td style={{ fontWeight: 600 }}>{e.name}</td>
-                          <td>
-                            <span className={`badge ${e.is_active ? "badge-active" : "badge-obsolete"}`}>
-                              {e.is_active ? "Active" : "Inactive"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {engineers.length === 0 ? (
+                        <tr><td colSpan={3} style={{ textAlign: "center", padding: "20px", color: "var(--text-muted)" }}>No engineers found.</td></tr>
+                      ) : (
+                        engineers.map(e => (
+                          <tr key={e.id}>
+                            <td style={{ fontWeight: 600 }}>{e.name}</td>
+                            <td>
+                              <span className={`badge ${e.is_active ? "badge-active" : "badge-obsolete"}`}>
+                                {e.is_active ? "Active" : "Inactive"}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                              <button
+                                type="button"
+                                className="btn btn-outline"
+                                style={{ padding: "3px 8px", fontSize: "11px", color: "#f87171", borderColor: "rgba(239, 68, 68, 0.4)" }}
+                                title={`Delete Engineer ${e.name}`}
+                                onClick={() => setDeleteConfirmTarget({ id: e.id, targetNum: e.name, type: "engineer" })}
+                              >
+                                <Trash2 size={12} style={{ marginRight: "3px" }} /> Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -3000,15 +3608,30 @@ export default function App() {
                 <div className="table-container">
                   <table>
                     <thead>
-                      <tr><th>Customer</th><th>Model Name</th></tr>
+                      <tr><th>Customer</th><th>Model Name</th><th style={{ width: "90px", textAlign: "right" }}>Action</th></tr>
                     </thead>
                     <tbody>
-                      {projects.map(p => (
-                        <tr key={p.id}>
-                          <td>{p.customer_name}</td>
-                          <td style={{ fontWeight: 600, color: "#38bdf8" }}>{p.model_name}</td>
-                        </tr>
-                      ))}
+                      {projects.length === 0 ? (
+                        <tr><td colSpan={3} style={{ textAlign: "center", padding: "20px", color: "var(--text-muted)" }}>No models found.</td></tr>
+                      ) : (
+                        projects.map(p => (
+                          <tr key={p.id}>
+                            <td>{p.customer_name}</td>
+                            <td style={{ fontWeight: 600, color: "#38bdf8" }}>{p.model_name}</td>
+                            <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                              <button
+                                type="button"
+                                className="btn btn-outline"
+                                style={{ padding: "3px 8px", fontSize: "11px", color: "#f87171", borderColor: "rgba(239, 68, 68, 0.4)" }}
+                                title={`Delete Model ${p.model_name}`}
+                                onClick={() => setDeleteConfirmTarget({ id: p.id, targetNum: `${p.model_name} (${p.customer_name})`, type: "model" })}
+                              >
+                                <Trash2 size={12} style={{ marginRight: "3px" }} /> Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -4471,17 +5094,23 @@ export default function App() {
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">RFQ No.</label>
-                        <select
+                        <SearchableRfqSelect
                           value={modalData.rfq_no || ""}
-                          onChange={e => {
-                            const val = e.target.value;
+                          options={uniqueRfqOptions}
+                          onChange={val => {
                             const matchedRfq = rfqs.find(r => (r.sr_no || r.rfq_number) === val);
                             setModalData({
                               ...modalData,
                               rfq_no: val,
                               ...(matchedRfq ? {
                                 customer_name: matchedRfq.customer_name || modalData.customer_name || "",
-                                model_name: matchedRfq.model || modalData.model_name || "",
+                                model_name: matchedRfq.model || matchedRfq.model_name || modalData.model_name || "",
+                                drawing_number: matchedRfq.drawing_number || modalData.drawing_number || "",
+                                harness_part_number: matchedRfq.harness_part_no || matchedRfq.harness_part_number || matchedRfq.harness_number || modalData.harness_part_number || "",
+                                customer_revision: matchedRfq.customer_revision || matchedRfq.revision_code || modalData.customer_revision || "",
+                                fg_code: matchedRfq.fg_code || modalData.fg_code || "",
+                                fg_rev: matchedRfq.fg_rev || modalData.fg_rev || "",
+                                description: matchedRfq.description || modalData.description || "",
                                 unique_rfq_no: matchedRfq.unique_rfq_no || modalData.unique_rfq_no || "",
                                 query_status: matchedRfq.query_status || modalData.query_status || "Open",
                                 unique_status: matchedRfq.unique_status || modalData.unique_status || "Open",
@@ -4491,15 +5120,7 @@ export default function App() {
                               } : {})
                             });
                           }}
-                        >
-                          <option value="">Select RFQ No...</option>
-                          {uniqueRfqOptions.map(rfqNo => (
-                            <option key={rfqNo} value={rfqNo}>{rfqNo}</option>
-                          ))}
-                          {modalData.rfq_no && !uniqueRfqOptions.includes(modalData.rfq_no) && (
-                            <option value={modalData.rfq_no}>{modalData.rfq_no}</option>
-                          )}
-                        </select>
+                        />
                       </div>
                       <div className="form-group">
                         <label className="form-label">Stage</label>
@@ -4590,6 +5211,69 @@ export default function App() {
                             <option value="__custom__">+ Enter custom model...</option>
                           </select>
                         )}
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Drawing No.</label>
+                        <input
+                          type="text"
+                          placeholder="Drawing number..."
+                          value={modalData.drawing_number || ""}
+                          onChange={e => setModalData({ ...modalData, drawing_number: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Harness Part No.</label>
+                        <input
+                          type="text"
+                          placeholder="Harness part number..."
+                          value={modalData.harness_part_number || ""}
+                          onChange={e => setModalData({ ...modalData, harness_part_number: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label">Customer Revision</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Rev A"
+                          value={modalData.customer_revision || ""}
+                          onChange={e => setModalData({ ...modalData, customer_revision: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">FG Code</label>
+                        <input
+                          type="text"
+                          placeholder="FG code..."
+                          value={modalData.fg_code || ""}
+                          onChange={e => setModalData({ ...modalData, fg_code: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">FG Rev.</label>
+                        <input
+                          type="text"
+                          placeholder="FG revision..."
+                          value={modalData.fg_rev || ""}
+                          onChange={e => setModalData({ ...modalData, fg_rev: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Description</label>
+                        <input
+                          type="text"
+                          placeholder="Part description..."
+                          value={modalData.description || ""}
+                          onChange={e => setModalData({ ...modalData, description: e.target.value })}
+                        />
                       </div>
                     </div>
 
@@ -4722,7 +5406,16 @@ export default function App() {
                     </div>
 
                     <div className="form-section-title">4. SAP BOM & Labels</div>
-                    <div className="form-row">
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label">Sap Bom Alternate</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Alt-1"
+                          value={modalData.sap_bom_alternate || ""}
+                          onChange={e => setModalData({ ...modalData, sap_bom_alternate: e.target.value })}
+                        />
+                      </div>
                       <div className="form-group">
                         <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                           <Calendar size={13} style={{ color: "#38bdf8" }} /> SAP BOM Upload Date
@@ -4730,6 +5423,7 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.sap_bom_upload_date || ""}
+                          max={modalData.sap_bom_released_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, sap_bom_upload_date: e.target.value })}
@@ -4742,6 +5436,8 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.sap_bom_released_date || ""}
+                          min={modalData.sap_bom_upload_date || undefined}
+                          max={modalData.prd_bom_release_date && modalData.label_upload_date ? (modalData.prd_bom_release_date < modalData.label_upload_date ? modalData.prd_bom_release_date : modalData.label_upload_date) : (modalData.prd_bom_release_date || modalData.label_upload_date || undefined)}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, sap_bom_released_date: e.target.value })}
@@ -4757,6 +5453,7 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.prd_bom_release_date || ""}
+                          min={modalData.sap_bom_released_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, prd_bom_release_date: e.target.value })}
@@ -4769,6 +5466,8 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.label_upload_date || ""}
+                          min={modalData.sap_bom_released_date || undefined}
+                          max={modalData.min_by_engineer_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, label_upload_date: e.target.value })}
@@ -4785,6 +5484,8 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.min_by_engineer_date || ""}
+                          min={modalData.label_upload_date || undefined}
+                          max={modalData.min_by_ppc || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, min_by_engineer_date: e.target.value })}
@@ -4797,6 +5498,7 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.min_by_ppc || ""}
+                          min={modalData.min_by_engineer_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, min_by_ppc: e.target.value })}
@@ -4855,17 +5557,23 @@ export default function App() {
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">RFQ No.</label>
-                        <select
+                        <SearchableRfqSelect
                           value={modalData.rfq_no || ""}
-                          onChange={e => {
-                            const val = e.target.value;
+                          options={uniqueRfqOptions}
+                          onChange={val => {
                             const matchedRfq = rfqs.find(r => (r.sr_no || r.rfq_number) === val);
                             setModalData({
                               ...modalData,
                               rfq_no: val,
                               ...(matchedRfq ? {
                                 customer_name: matchedRfq.customer_name || modalData.customer_name || "",
-                                model_name: matchedRfq.model || modalData.model_name || "",
+                                model_name: matchedRfq.model || matchedRfq.model_name || modalData.model_name || "",
+                                drawing_number: matchedRfq.drawing_number || modalData.drawing_number || "",
+                                harness_part_number: matchedRfq.harness_part_no || matchedRfq.harness_part_number || matchedRfq.harness_number || modalData.harness_part_number || "",
+                                customer_revision: matchedRfq.customer_revision || matchedRfq.revision_code || modalData.customer_revision || "",
+                                fg_code: matchedRfq.fg_code || modalData.fg_code || "",
+                                fg_rev: matchedRfq.fg_rev || modalData.fg_rev || "",
+                                description: matchedRfq.description || modalData.description || "",
                                 unique_rfq_no: matchedRfq.unique_rfq_no || modalData.unique_rfq_no || "",
                                 query_status: matchedRfq.query_status || modalData.query_status || "Open",
                                 unique_status: matchedRfq.unique_status || modalData.unique_status || "Open",
@@ -4875,15 +5583,7 @@ export default function App() {
                               } : {})
                             });
                           }}
-                        >
-                          <option value="">Select RFQ No...</option>
-                          {uniqueRfqOptions.map(rfqNo => (
-                            <option key={rfqNo} value={rfqNo}>{rfqNo}</option>
-                          ))}
-                          {modalData.rfq_no && !uniqueRfqOptions.includes(modalData.rfq_no) && (
-                            <option value={modalData.rfq_no}>{modalData.rfq_no}</option>
-                          )}
-                        </select>
+                        />
                       </div>
                       <div className="form-group">
                         <label className="form-label">Stage</label>
@@ -4974,6 +5674,69 @@ export default function App() {
                             <option value="__custom__">+ Enter custom model...</option>
                           </select>
                         )}
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Drawing No.</label>
+                        <input
+                          type="text"
+                          placeholder="Drawing number..."
+                          value={modalData.drawing_number || ""}
+                          onChange={e => setModalData({ ...modalData, drawing_number: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Harness Part No.</label>
+                        <input
+                          type="text"
+                          placeholder="Harness part number..."
+                          value={modalData.harness_part_number || ""}
+                          onChange={e => setModalData({ ...modalData, harness_part_number: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label">Customer Revision</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Rev A"
+                          value={modalData.customer_revision || ""}
+                          onChange={e => setModalData({ ...modalData, customer_revision: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">FG Code</label>
+                        <input
+                          type="text"
+                          placeholder="FG code..."
+                          value={modalData.fg_code || ""}
+                          onChange={e => setModalData({ ...modalData, fg_code: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">FG Rev.</label>
+                        <input
+                          type="text"
+                          placeholder="FG revision..."
+                          value={modalData.fg_rev || ""}
+                          onChange={e => setModalData({ ...modalData, fg_rev: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Description</label>
+                        <input
+                          type="text"
+                          placeholder="Part description..."
+                          value={modalData.description || ""}
+                          onChange={e => setModalData({ ...modalData, description: e.target.value })}
+                        />
                       </div>
                     </div>
 
@@ -5106,7 +5869,16 @@ export default function App() {
                     </div>
 
                     <div className="form-section-title">4. SAP BOM & Labels</div>
-                    <div className="form-row">
+                    <div className="form-row-3">
+                      <div className="form-group">
+                        <label className="form-label">Sap Bom Alternate</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Alt-1"
+                          value={modalData.sap_bom_alternate || ""}
+                          onChange={e => setModalData({ ...modalData, sap_bom_alternate: e.target.value })}
+                        />
+                      </div>
                       <div className="form-group">
                         <label className="form-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                           <Calendar size={13} style={{ color: "#38bdf8" }} /> SAP BOM Upload Date
@@ -5114,6 +5886,7 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.sap_bom_upload_date || ""}
+                          max={modalData.sap_bom_released_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, sap_bom_upload_date: e.target.value })}
@@ -5126,6 +5899,8 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.sap_bom_released_date || ""}
+                          min={modalData.sap_bom_upload_date || undefined}
+                          max={modalData.prd_bom_release_date && modalData.label_upload_date ? (modalData.prd_bom_release_date < modalData.label_upload_date ? modalData.prd_bom_release_date : modalData.label_upload_date) : (modalData.prd_bom_release_date || modalData.label_upload_date || undefined)}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, sap_bom_released_date: e.target.value })}
@@ -5141,6 +5916,7 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.prd_bom_release_date || ""}
+                          min={modalData.sap_bom_released_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, prd_bom_release_date: e.target.value })}
@@ -5153,6 +5929,8 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.label_upload_date || ""}
+                          min={modalData.sap_bom_released_date || undefined}
+                          max={modalData.min_by_engineer_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, label_upload_date: e.target.value })}
@@ -5169,6 +5947,8 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.min_by_engineer_date || ""}
+                          min={modalData.label_upload_date || undefined}
+                          max={modalData.min_by_ppc || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, min_by_engineer_date: e.target.value })}
@@ -5181,6 +5961,7 @@ export default function App() {
                         <input
                           type="date"
                           value={modalData.min_by_ppc || ""}
+                          min={modalData.min_by_engineer_date || undefined}
                           onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onFocus={e => { try { (e.currentTarget as any).showPicker?.(); } catch { } }}
                           onChange={e => setModalData({ ...modalData, min_by_ppc: e.target.value })}
@@ -5451,7 +6232,17 @@ export default function App() {
           >
             <div className="modal-header" style={{ borderBottom: "1px solid rgba(239, 68, 68, 0.2)" }}>
               <div className="modal-title" style={{ color: "#ef4444", display: "flex", alignItems: "center", gap: "8px" }}>
-                <Trash2 size={18} /> Delete {deleteConfirmTarget.type === "ecn" ? "ECN" : "RFQ"}
+                <Trash2 size={18} /> Delete {
+                  deleteConfirmTarget.type === "ecn"
+                    ? "ECN"
+                    : deleteConfirmTarget.type === "rfq"
+                    ? "RFQ"
+                    : deleteConfirmTarget.type === "customer"
+                    ? "Customer"
+                    : deleteConfirmTarget.type === "engineer"
+                    ? "Engineer"
+                    : "Model"
+                }
               </div>
               <button className="modal-close" onClick={() => setDeleteConfirmTarget(null)}>
                 <X size={18} />
@@ -5459,7 +6250,17 @@ export default function App() {
             </div>
             <div className="modal-body" style={{ padding: "20px" }}>
               <p style={{ fontSize: "14px", color: "var(--text-main)", margin: 0, lineHeight: 1.5 }}>
-                Are you sure you want to delete {deleteConfirmTarget.type === "ecn" ? "ECN" : "RFQ"} <span style={{ color: "var(--primary-light)", fontWeight: 700 }}>{deleteConfirmTarget.targetNum}</span>?
+                Are you sure you want to delete {
+                  deleteConfirmTarget.type === "ecn"
+                    ? "ECN"
+                    : deleteConfirmTarget.type === "rfq"
+                    ? "RFQ"
+                    : deleteConfirmTarget.type === "customer"
+                    ? "Customer"
+                    : deleteConfirmTarget.type === "engineer"
+                    ? "Engineer"
+                    : "Model"
+                } <span style={{ color: "var(--primary-light)", fontWeight: 700 }}>{deleteConfirmTarget.targetNum}</span>?
               </p>
             </div>
             <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px" }}>
@@ -5476,8 +6277,14 @@ export default function App() {
                 onClick={() => {
                   if (deleteConfirmTarget.type === "ecn") {
                     executeDeleteEcn(deleteConfirmTarget.id, deleteConfirmTarget.targetNum);
-                  } else {
+                  } else if (deleteConfirmTarget.type === "rfq") {
                     executeDeleteRfq(deleteConfirmTarget.id, deleteConfirmTarget.targetNum);
+                  } else if (deleteConfirmTarget.type === "customer") {
+                    executeDeleteCustomer(deleteConfirmTarget.id, deleteConfirmTarget.targetNum);
+                  } else if (deleteConfirmTarget.type === "engineer") {
+                    executeDeleteEngineer(deleteConfirmTarget.id, deleteConfirmTarget.targetNum);
+                  } else if (deleteConfirmTarget.type === "model") {
+                    executeDeleteModel(deleteConfirmTarget.id, deleteConfirmTarget.targetNum);
                   }
                   setDeleteConfirmTarget(null);
                 }}

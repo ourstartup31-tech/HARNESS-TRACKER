@@ -40,6 +40,31 @@ export const CustomerService = {
     db.prepare("UPDATE customers SET is_active = ?, modified_by = ?, modified_at = datetime('now') WHERE id = ?")
       .run(isActive ? 1 : 0, modifiedBy, id);
     return db.prepare("SELECT * FROM customers WHERE id = ?").get(id);
+  },
+
+  delete(id: number) {
+    const db = getDb();
+    const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(id) as any;
+    if (!customer) throw new Error("Customer not found.");
+
+    db.exec("BEGIN TRANSACTION;");
+    try {
+      const projs = db.prepare("SELECT id FROM projects WHERE customer_id = ?").all(id) as any[];
+      for (const p of projs) {
+        const harns = db.prepare("SELECT id FROM harnesses WHERE project_id = ?").all(p.id) as any[];
+        for (const h of harns) {
+          db.prepare("DELETE FROM revisions WHERE harness_id = ?").run(h.id);
+        }
+        db.prepare("DELETE FROM harnesses WHERE project_id = ?").run(p.id);
+      }
+      db.prepare("DELETE FROM projects WHERE customer_id = ?").run(id);
+      db.prepare("DELETE FROM customers WHERE id = ?").run(id);
+      db.exec("COMMIT;");
+      return { success: true, id, name: customer.name };
+    } catch (err) {
+      db.exec("ROLLBACK;");
+      throw err;
+    }
   }
 };
 
@@ -70,6 +95,15 @@ export const EngineerService = {
     db.prepare("UPDATE engineers SET is_active = ?, modified_by = ?, modified_at = datetime('now') WHERE id = ?")
       .run(isActive ? 1 : 0, modifiedBy, id);
     return db.prepare("SELECT * FROM engineers WHERE id = ?").get(id);
+  },
+
+  delete(id: number) {
+    const db = getDb();
+    const engineer = db.prepare("SELECT * FROM engineers WHERE id = ?").get(id) as any;
+    if (!engineer) throw new Error("Engineer not found.");
+
+    db.prepare("DELETE FROM engineers WHERE id = ?").run(id);
+    return { success: true, id, name: engineer.name };
   }
 };
 
@@ -98,6 +132,27 @@ export const ProjectService = {
       "INSERT INTO projects (customer_id, model_name, created_by, modified_by) VALUES (?, ?, ?, ?)"
     ).run(customerId, clean, createdBy, createdBy);
     return db.prepare("SELECT * FROM projects WHERE id = ?").get(info.lastInsertRowid);
+  },
+
+  delete(id: number) {
+    const db = getDb();
+    const project = db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as any;
+    if (!project) throw new Error("Model not found.");
+
+    db.exec("BEGIN TRANSACTION;");
+    try {
+      const harns = db.prepare("SELECT id FROM harnesses WHERE project_id = ?").all(id) as any[];
+      for (const h of harns) {
+        db.prepare("DELETE FROM revisions WHERE harness_id = ?").run(h.id);
+      }
+      db.prepare("DELETE FROM harnesses WHERE project_id = ?").run(id);
+      db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+      db.exec("COMMIT;");
+      return { success: true, id, model_name: project.model_name };
+    } catch (err) {
+      db.exec("ROLLBACK;");
+      throw err;
+    }
   }
 };
 
@@ -756,6 +811,14 @@ export const RFQService = {
 
       const newCustomer = updatedRfq.customer_name !== undefined ? (updatedRfq.customer_name || "") : (ecn.customer_name || "");
       const newModel = updatedRfq.model !== undefined ? (updatedRfq.model || "") : (ecn.model_name || "");
+      const newDrawingNumber = updatedRfq.drawing_number !== undefined ? (updatedRfq.drawing_number || "") : (ecn.drawing_number || "");
+      const rfqHarnessPart = updatedRfq.harness_part_number !== undefined ? updatedRfq.harness_part_number : (updatedRfq.harness_part_no !== undefined ? updatedRfq.harness_part_no : (updatedRfq.harness_number !== undefined ? updatedRfq.harness_number : undefined));
+      const newHarnessPartNumber = rfqHarnessPart !== undefined ? (rfqHarnessPart || "") : (ecn.harness_part_number || "");
+      const rfqCustRev = updatedRfq.customer_revision !== undefined ? updatedRfq.customer_revision : (updatedRfq.revision_code !== undefined ? updatedRfq.revision_code : undefined);
+      const newCustomerRevision = rfqCustRev !== undefined ? (rfqCustRev || "") : (ecn.customer_revision || "");
+      const newFgCode = updatedRfq.fg_code !== undefined ? (updatedRfq.fg_code || "") : (ecn.fg_code || "");
+      const newFgRev = updatedRfq.fg_rev !== undefined ? (updatedRfq.fg_rev || "") : (ecn.fg_rev || "");
+      const newDescription = updatedRfq.description !== undefined ? (updatedRfq.description || "") : (ecn.description || "");
       const newQueryStatus = updatedRfq.query_status !== undefined ? (updatedRfq.query_status || "Open") : (ecn.query_status || "Open");
       const newUniqueDate = updatedRfq.unique_list_share_date !== undefined ? (updatedRfq.unique_list_share_date || "") : (ecn.unique_list_share_date || "");
       const newUniqueRfqNo = updatedRfq.unique_rfq_no !== undefined ? (updatedRfq.unique_rfq_no || "") : (ecn.unique_rfq_no || "");
@@ -777,6 +840,12 @@ export const RFQService = {
           rfq_no = ?,
           customer_name = ?,
           model_name = ?,
+          drawing_number = ?,
+          harness_part_number = ?,
+          customer_revision = ?,
+          fg_code = ?,
+          fg_rev = ?,
+          description = ?,
           query_status = ?,
           unique_list_share_date = ?,
           unique_rfq_no = ?,
@@ -798,6 +867,12 @@ export const RFQService = {
         newRfqNo,
         newCustomer,
         newModel,
+        newDrawingNumber,
+        newHarnessPartNumber,
+        newCustomerRevision,
+        newFgCode,
+        newFgRev,
+        newDescription,
         newQueryStatus,
         newUniqueDate,
         newUniqueRfqNo,
@@ -920,16 +995,18 @@ export const ECNService = {
     const info = db.prepare(`
       INSERT INTO ecns (
         ecn_number, rfq_id, rfq_no, stage, customer_name, model_name,
+        drawing_number, harness_part_number, customer_revision, fg_code, fg_rev, description,
         query_status, unique_list_share_date, unique_rfq_no, unique_status,
-        sap_bom_upload_date, sap_bom_released_date, prd_bom_release_date,
+        sap_bom_alternate, sap_bom_upload_date, sap_bom_released_date, prd_bom_release_date,
         label_upload_date, min_by_engineer_date, min_by_ppc, min_status,
         review, overall_status, no_of_ckt, volume, work_start_date, target_date, completion_date,
         harness_id, source_revision_id, primary_engineer_id, change_reason,
         stage_context, development_type, ecn_status, created_by, modified_by
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?,
+        ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
@@ -942,11 +1019,17 @@ export const ECNService = {
       rfq.stage || "",
       rfq.customer_name || "",
       rfq.model || "",
+      rfq.drawing_number || "",
+      rfq.harness_part_number || rfq.harness_part_no || rfq.harness_number || "",
+      rfq.customer_revision || rfq.revision_code || "",
+      rfq.fg_code || "",
+      rfq.fg_rev || "",
+      rfq.description || "",
       rfq.query_status || "Open",
       rfq.unique_list_share_date || "",
       rfq.unique_rfq_no || "",
       rfq.unique_status || "Open",
-      "", "", "",
+      "", "", "", "",
       "", "", "", "Open",
       "",
       rfq.overall_rfq_status || "Open",
@@ -992,10 +1075,17 @@ export const ECNService = {
     stage?: string | null;
     customer_name?: string | null;
     model_name?: string | null;
+    drawing_number?: string | null;
+    harness_part_number?: string | null;
+    customer_revision?: string | null;
+    fg_code?: string | null;
+    fg_rev?: string | null;
+    description?: string | null;
     query_status?: string | null;
     unique_list_share_date?: string | null;
     unique_rfq_no?: string | null;
     unique_status?: string | null;
+    sap_bom_alternate?: string | null;
     sap_bom_upload_date?: string | null;
     sap_bom_released_date?: string | null;
     prd_bom_release_date?: string | null;
@@ -1041,6 +1131,30 @@ export const ECNService = {
       }
     }
 
+    // POKA-YOKE: ECN Date Lock Validations (SAP BOM Upload, BOM Release, Label & MIN)
+    const sbUpload = data.sap_bom_upload_date?.trim() || null;
+    const sbReleased = data.sap_bom_released_date?.trim() || null;
+    const prdBomRel = data.prd_bom_release_date?.trim() || null;
+    const labelUpload = data.label_upload_date?.trim() || null;
+    const minEng = data.min_by_engineer_date?.trim() || null;
+    const minPpc = data.min_by_ppc?.trim() || null;
+
+    if (sbUpload && sbReleased && sbUpload > sbReleased) {
+      throw new Error(`SAP BOM Upload Date (${sbUpload}) must be equal to or earlier than SAP BOM Released Date (${sbReleased}).`);
+    }
+    if (sbReleased && prdBomRel && sbReleased > prdBomRel) {
+      throw new Error(`PRD BOM Release Date (${prdBomRel}) cannot be earlier than SAP BOM Released Date (${sbReleased}).`);
+    }
+    if (sbReleased && labelUpload && sbReleased > labelUpload) {
+      throw new Error(`Label Upload Date (${labelUpload}) cannot be earlier than SAP BOM Released Date (${sbReleased}).`);
+    }
+    if (labelUpload && minEng && labelUpload > minEng) {
+      throw new Error(`MIN by Engineer Date (${minEng}) cannot be earlier than Label Upload Date (${labelUpload}).`);
+    }
+    if (minEng && minPpc && minEng > minPpc) {
+      throw new Error(`MIN by PPC Date (${minPpc}) cannot be earlier than MIN by Engineer Date (${minEng}).`);
+    }
+
     const ecnNumber = (data as any).ecn_number || this.generateNextNumber();
     const completionDate = data.completion_date || data.actual_date || data.min_meeting_date || null;
     const user = data.created_by || "Engineer";
@@ -1048,8 +1162,9 @@ export const ECNService = {
     const info = db.prepare(`
       INSERT INTO ecns (
         ecn_number, rfq_no, stage, customer_name, model_name,
+        drawing_number, harness_part_number, customer_revision, fg_code, fg_rev, description,
         query_status, unique_list_share_date, unique_rfq_no, unique_status,
-        sap_bom_upload_date, sap_bom_released_date, prd_bom_release_date,
+        sap_bom_alternate, sap_bom_upload_date, sap_bom_released_date, prd_bom_release_date,
         label_upload_date, min_by_engineer_date, min_by_ppc, min_status,
         review, overall_status, no_of_ckt, volume, work_start_date, target_date, completion_date,
         harness_id, source_revision_id, stage_context, development_type,
@@ -1058,8 +1173,9 @@ export const ECNService = {
         ecn_status, delay_reason, created_by, modified_by
       ) VALUES (
         ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?,
+        ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
@@ -1073,10 +1189,17 @@ export const ECNService = {
       data.stage ?? "",
       data.customer_name || null,
       data.model_name || null,
+      data.drawing_number || null,
+      data.harness_part_number || null,
+      data.customer_revision || null,
+      data.fg_code || null,
+      data.fg_rev || null,
+      data.description || null,
       data.query_status || "Open",
       data.unique_list_share_date || null,
       data.unique_rfq_no || null,
       data.unique_status || "Open",
+      data.sap_bom_alternate || null,
       data.sap_bom_upload_date || null,
       data.sap_bom_released_date || null,
       data.prd_bom_release_date || null,
@@ -1142,6 +1265,30 @@ export const ECNService = {
       }
     }
 
+    // POKA-YOKE: ECN Date Lock Validations (SAP BOM Upload, BOM Release, Label & MIN)
+    const sbUpload = (data.sap_bom_upload_date !== undefined ? data.sap_bom_upload_date : ecn.sap_bom_upload_date)?.trim() || null;
+    const sbReleased = (data.sap_bom_released_date !== undefined ? data.sap_bom_released_date : ecn.sap_bom_released_date)?.trim() || null;
+    const prdBomRel = (data.prd_bom_release_date !== undefined ? data.prd_bom_release_date : ecn.prd_bom_release_date)?.trim() || null;
+    const labelUpload = (data.label_upload_date !== undefined ? data.label_upload_date : ecn.label_upload_date)?.trim() || null;
+    const minEng = (data.min_by_engineer_date !== undefined ? data.min_by_engineer_date : ecn.min_by_engineer_date)?.trim() || null;
+    const minPpc = (data.min_by_ppc !== undefined ? data.min_by_ppc : ecn.min_by_ppc)?.trim() || null;
+
+    if (sbUpload && sbReleased && sbUpload > sbReleased) {
+      throw new Error(`SAP BOM Upload Date (${sbUpload}) must be equal to or earlier than SAP BOM Released Date (${sbReleased}).`);
+    }
+    if (sbReleased && prdBomRel && sbReleased > prdBomRel) {
+      throw new Error(`PRD BOM Release Date (${prdBomRel}) cannot be earlier than SAP BOM Released Date (${sbReleased}).`);
+    }
+    if (sbReleased && labelUpload && sbReleased > labelUpload) {
+      throw new Error(`Label Upload Date (${labelUpload}) cannot be earlier than SAP BOM Released Date (${sbReleased}).`);
+    }
+    if (labelUpload && minEng && labelUpload > minEng) {
+      throw new Error(`MIN by Engineer Date (${minEng}) cannot be earlier than Label Upload Date (${labelUpload}).`);
+    }
+    if (minEng && minPpc && minEng > minPpc) {
+      throw new Error(`MIN by PPC Date (${minPpc}) cannot be earlier than MIN by Engineer Date (${minEng}).`);
+    }
+
     const completionDate = (data.completion_date !== undefined || data.actual_date !== undefined)
       ? (data.completion_date || data.actual_date || null)
       : (minDate || ecn.completion_date);
@@ -1159,10 +1306,17 @@ export const ECNService = {
         stage = COALESCE(?, stage),
         customer_name = COALESCE(?, customer_name),
         model_name = COALESCE(?, model_name),
+        drawing_number = COALESCE(?, drawing_number),
+        harness_part_number = COALESCE(?, harness_part_number),
+        customer_revision = COALESCE(?, customer_revision),
+        fg_code = COALESCE(?, fg_code),
+        fg_rev = COALESCE(?, fg_rev),
+        description = COALESCE(?, description),
         query_status = COALESCE(?, query_status),
         unique_list_share_date = COALESCE(?, unique_list_share_date),
         unique_rfq_no = COALESCE(?, unique_rfq_no),
         unique_status = COALESCE(?, unique_status),
+        sap_bom_alternate = COALESCE(?, sap_bom_alternate),
         sap_bom_upload_date = COALESCE(?, sap_bom_upload_date),
         sap_bom_released_date = COALESCE(?, sap_bom_released_date),
         prd_bom_release_date = COALESCE(?, prd_bom_release_date),
@@ -1199,10 +1353,17 @@ export const ECNService = {
       data.stage ?? null,
       data.customer_name ?? null,
       data.model_name ?? null,
+      data.drawing_number ?? null,
+      data.harness_part_number ?? null,
+      data.customer_revision ?? null,
+      data.fg_code ?? null,
+      data.fg_rev ?? null,
+      data.description ?? null,
       data.query_status ?? null,
       data.unique_list_share_date ?? null,
       data.unique_rfq_no ?? null,
       data.unique_status ?? null,
+      data.sap_bom_alternate ?? null,
       data.sap_bom_upload_date ?? null,
       data.sap_bom_released_date ?? null,
       data.prd_bom_release_date ?? null,
